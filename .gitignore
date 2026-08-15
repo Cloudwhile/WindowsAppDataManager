@@ -54,3 +54,11 @@ compile_commands.json
 *creator.user*
 
 *_qmlcache.qrc
+
+Agent*
+
+Preview/
+out/
+.vs/
+CMakeUserPresets.json
+WindowsAppDataManager.slnx
