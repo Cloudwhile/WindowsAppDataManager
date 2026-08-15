@@ -59,6 +59,7 @@ Agent*
 
 Preview/
 out/
+.vscode/
 .vs/
 CMakeUserPresets.json
 WindowsAppDataManager.slnx
