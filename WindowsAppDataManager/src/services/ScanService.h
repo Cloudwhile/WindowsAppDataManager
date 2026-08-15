@@ -1,0 +1,35 @@
+#pragma once
+
+#include "../models/ScanResult.h"
+
+#include <QFutureWatcher>
+#include <QObject>
+
+#include <atomic>
+#include <memory>
+
+namespace wam::services {
+
+class ScanService final : public QObject {
+    Q_OBJECT
+
+public:
+    explicit ScanService(QObject *parent = nullptr);
+    ~ScanService() override;
+
+    [[nodiscard]] bool isRunning() const;
+    void startScan(const QStringList &roots);
+    void cancelScan();
+
+signals:
+    void scanStarted();
+    void progressChanged(int progress, const QString &currentPath);
+    void scanCompleted(const wam::ScanResult &result);
+    void scanFailed(const QString &message, const QString &technicalDetail);
+
+private:
+    QFutureWatcher<ScanResult> m_watcher;
+    std::shared_ptr<std::atomic_bool> m_cancelRequested;
+};
+
+} // namespace wam::services
