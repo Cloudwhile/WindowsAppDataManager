@@ -16,6 +16,7 @@ ApplicationWindow {
 
     readonly property ScanViewModel scanController: Backend.scan
     readonly property SettingsViewModel settingsController: Backend.settings
+    readonly property ApplicationFilterModel applicationFilter: Backend.applicationFilter
     readonly property int overviewPageIndex: 0
     readonly property int applicationsPageIndex: 1
     readonly property int applicationDetailPageIndex: 2
@@ -416,6 +417,7 @@ ApplicationWindow {
             }
 
             ApplicationsPage {
+                filterModel: window.applicationFilter
                 scanStatus: window.scanController.statusText
                 lastScanText: window.scanController.lastScanText
                 onApplicationSelected: index => window.openApplication(index)

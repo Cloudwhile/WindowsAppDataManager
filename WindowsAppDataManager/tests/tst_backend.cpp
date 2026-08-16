@@ -2,6 +2,7 @@
 #include "src/core/classifier/RiskAssessment.h"
 #include "src/core/resolver/AppResolver.h"
 #include "src/core/scanner/DirectoryScanner.h"
+#include "src/qmlmodels/ApplicationFilterModel.h"
 #include "src/qmlmodels/ApplicationListModel.h"
 #include "src/qmlmodels/ScanViewModel.h"
 
@@ -12,6 +13,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <utility>
 
 namespace {
 
@@ -31,6 +33,25 @@ std::filesystem::path fsPath(const QString &path)
 #endif
 }
 
+wam::ApplicationInfo application(QString id,
+                                 QString name,
+                                 QString publisher,
+                                 QString category,
+                                 quint64 size,
+                                 wam::RiskLevel risk,
+                                 wam::InstallState installState)
+{
+    wam::ApplicationInfo result;
+    result.id = std::move(id);
+    result.name = std::move(name);
+    result.publisher = std::move(publisher);
+    result.category = std::move(category);
+    result.totalSize = size;
+    result.risk = risk;
+    result.installState = installState;
+    return result;
+}
+
 } // namespace
 
 class BackendTest final : public QObject {
@@ -45,6 +66,8 @@ private slots:
     void scannerHonorsCancellationAndExclusions();
     void resolverProducesStableCollisionFreeIds();
     void resolverExcludesNestedKnownTargets();
+    void applicationFilterCombinesSearchAndExactFilters();
+    void applicationFilterSortsAndMapsSourceRows();
     void viewModelPublishesBackgroundScan();
 };
 
@@ -185,6 +208,104 @@ void BackendTest::resolverExcludesNestedKnownTargets()
                         [](const QString &path) {
         return path.contains(QStringLiteral("chrome"), Qt::CaseInsensitive);
     }));
+}
+
+void BackendTest::applicationFilterCombinesSearchAndExactFilters()
+{
+    using wam::InstallState;
+    using wam::RiskLevel;
+
+    wam::qmlmodels::ApplicationListModel applications;
+    applications.setApplications({
+        application(QStringLiteral("alpha"), QStringLiteral("Alpha Editor"),
+                    QStringLiteral("Northwind"), QStringLiteral("开发工具"), 120,
+                    RiskLevel::Low, InstallState::Installed),
+        application(QStringLiteral("browser"), QStringLiteral("Browser Cache"),
+                    QStringLiteral("Contoso"), QStringLiteral("浏览器"), 90,
+                    RiskLevel::High, InstallState::PotentialOrphan),
+        application(QStringLiteral("gamma"), QStringLiteral("Gamma Extension"),
+                    QStringLiteral("Contoso"), QStringLiteral("扩展"), 40,
+                    RiskLevel::High, InstallState::Installed)
+    });
+
+    wam::qmlmodels::ApplicationFilterModel filter(&applications);
+    QCOMPARE(filter.count(), 3);
+
+    filter.setSearchText(QStringLiteral("contoso"));
+    QCOMPARE(filter.count(), 2);
+    filter.setRiskFilter(static_cast<int>(RiskLevel::High));
+    QCOMPARE(filter.count(), 2);
+    filter.setInstallStateFilter(static_cast<int>(InstallState::PotentialOrphan));
+    QCOMPARE(filter.count(), 1);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("browser"));
+
+    filter.setSearchText(QStringLiteral("开发"));
+    QCOMPARE(filter.count(), 0);
+    filter.setRiskFilter(-1);
+    filter.setInstallStateFilter(-1);
+    QCOMPARE(filter.count(), 1);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("alpha"));
+
+    filter.setRiskFilter(99);
+    filter.setInstallStateFilter(-2);
+    QCOMPARE(filter.riskFilter(), -1);
+    QCOMPARE(filter.installStateFilter(), -1);
+}
+
+void BackendTest::applicationFilterSortsAndMapsSourceRows()
+{
+    using wam::InstallState;
+    using wam::RiskLevel;
+
+    wam::qmlmodels::ApplicationListModel applications;
+    applications.setApplications({
+        application(QStringLiteral("safe"), QStringLiteral("Zulu Safe"),
+                    QStringLiteral("Vendor"), QStringLiteral("工具"), 20,
+                    RiskLevel::Safe, InstallState::Installed),
+        application(QStringLiteral("unknown"), QStringLiteral("Echo Unknown"),
+                    QStringLiteral("Vendor"), QStringLiteral("工具"), 60,
+                    RiskLevel::Unknown, InstallState::Unknown),
+        application(QStringLiteral("protected"), QStringLiteral("Bravo Protected"),
+                    QStringLiteral("Vendor"), QStringLiteral("工具"), 80,
+                    RiskLevel::Protected, InstallState::Installed),
+        application(QStringLiteral("high"), QStringLiteral("Alpha High"),
+                    QStringLiteral("Vendor"), QStringLiteral("工具"), 80,
+                    RiskLevel::High, InstallState::PotentialOrphan)
+    });
+
+    wam::qmlmodels::ApplicationFilterModel filter(&applications);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("high"));
+    QCOMPARE(filter.get(1).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("protected"));
+
+    filter.setSortDescending(false);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("safe"));
+
+    filter.setSortMode(1);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("high"));
+    filter.setSortDescending(true);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("safe"));
+
+    filter.setSortMode(2);
+    QCOMPARE(filter.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("protected"));
+    QCOMPARE(filter.get(1).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("high"));
+    QCOMPARE(filter.get(2).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("unknown"));
+
+    for (int proxyIndex = 0; proxyIndex < filter.count(); ++proxyIndex) {
+        const QVariantMap item = filter.get(proxyIndex);
+        const int sourceIndex = item.value(QStringLiteral("sourceIndex")).toInt();
+        QCOMPARE(applications.get(sourceIndex).value(QStringLiteral("appId")),
+                 item.value(QStringLiteral("appId")));
+    }
 }
 
 void BackendTest::viewModelPublishesBackgroundScan()

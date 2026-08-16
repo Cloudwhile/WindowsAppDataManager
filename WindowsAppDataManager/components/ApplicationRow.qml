@@ -7,19 +7,11 @@ Rectangle {
     required property var rowData
     required property int rowIndex
     property bool selected: false
-    property string filterText: ""
-    property int acceptedRiskLevel: -1
-    readonly property bool matchesFilter: filterText.trim().length === 0
-                                          || rowData.appName.toLowerCase().includes(filterText.trim().toLowerCase())
-                                          || rowData.publisher.toLowerCase().includes(filterText.trim().toLowerCase())
-                                          || rowData.category.toLowerCase().includes(filterText.trim().toLowerCase())
-    readonly property bool matchesRisk: acceptedRiskLevel < 0 || rowData.riskLevel === acceptedRiskLevel
 
     signal activated(int index)
 
-    height: matchesFilter && matchesRisk ? 50 : 0
-    visible: height > 0
-    activeFocusOnTab: visible
+    height: 50
+    activeFocusOnTab: true
     color: selected ? Theme.surfaceSelected
                     : activeFocus || mouseArea.containsMouse ? Theme.surfaceHover : "transparent"
 

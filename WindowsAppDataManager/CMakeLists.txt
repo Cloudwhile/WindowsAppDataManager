@@ -82,6 +82,8 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             components/StorageRing.qml
             components/ThemedIcon.qml
             components/ApplicationRow.qml
+            components/FilterComboBox.qml
+            components/ApplicationFilterBar.qml
             components/ApplicationDetailContent.qml
             components/ConfidenceIndicator.qml
             components/DataCategoryRow.qml
@@ -99,6 +101,8 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             src/qmlmodels/AppBackend.h
             src/qmlmodels/ApplicationListModel.cpp
             src/qmlmodels/ApplicationListModel.h
+            src/qmlmodels/ApplicationFilterModel.cpp
+            src/qmlmodels/ApplicationFilterModel.h
             src/qmlmodels/ScanViewModel.cpp
             src/qmlmodels/ScanViewModel.h
             src/qmlmodels/SettingsViewModel.cpp
@@ -159,6 +163,8 @@ if(BUILD_TESTING)
         tests/tst_backend.cpp
         src/qmlmodels/ApplicationListModel.cpp
         src/qmlmodels/ApplicationListModel.h
+        src/qmlmodels/ApplicationFilterModel.cpp
+        src/qmlmodels/ApplicationFilterModel.h
         src/qmlmodels/ScanViewModel.cpp
         src/qmlmodels/ScanViewModel.h
     )
