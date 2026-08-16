@@ -1,0 +1,67 @@
+{
+  "$schema": "../schema.json",
+  "id": "discord",
+  "version": "1",
+  "name": "Discord",
+  "publisher": "Discord Inc.",
+  "applicationCategory": "通讯",
+  "executablePath": "%LOCALAPPDATA%/Discord/Update.exe",
+  "installPath": "%LOCALAPPDATA%/Discord",
+  "identifiers": {
+    "registryDisplayNames": ["Discord"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "discord" },
+    { "scope": "local", "path": "Discord" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "资源缓存会在 Discord 再次使用时重新下载。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示内容可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，应用仍会生成新日志。"
+    },
+    {
+      "id": "session-storage",
+      "path": "Session Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能导致退出登录或丢失尚未同步的会话状态。"
+    },
+    {
+      "id": "cookies",
+      "path": "Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能使账号退出登录，并丢失部分本地偏好。"
+    }
+  ]
+}

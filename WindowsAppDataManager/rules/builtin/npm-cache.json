@@ -1,0 +1,35 @@
+{
+  "$schema": "../schema.json",
+  "id": "npm-cache",
+  "version": "1",
+  "name": "npm 缓存",
+  "publisher": "OpenJS Foundation",
+  "applicationCategory": "开发工具",
+  "executablePath": "%ProgramFiles%/nodejs/npm.cmd",
+  "installPath": "%ProgramFiles%/nodejs",
+  "identifiers": {
+    "registryDisplayNames": ["Node.js"]
+  },
+  "locations": [
+    { "scope": "local", "path": "npm-cache" },
+    { "scope": "roaming", "path": "npm-cache" }
+  ],
+  "entries": [
+    {
+      "id": "content-cache",
+      "path": "_cacache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "软件包内容会在后续安装时重新下载。"
+    },
+    {
+      "id": "logs",
+      "path": "_logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧安装日志会被移除，npm 仍会生成新日志。"
+    }
+  ]
+}

@@ -28,9 +28,16 @@ set(BACKEND_SOURCES
     src/core/classifier/RiskAssessment.h
     src/core/resolver/AppResolver.cpp
     src/core/resolver/AppResolver.h
+    src/core/rules/IdentifierNormalization.h
+    src/core/rules/RuleCatalog.cpp
+    src/core/rules/RuleCatalog.h
+    src/core/rules/RuleLoader.cpp
+    src/core/rules/RuleLoader.h
     src/core/scanner/DirectoryScanner.cpp
     src/core/scanner/DirectoryScanner.h
     src/models/ApplicationInfo.h
+    src/models/InstallationEvidence.h
+    src/models/RuleDefinition.h
     src/models/ScanResult.h
     src/platform/windows/filesystem/AppDataPaths.cpp
     src/platform/windows/filesystem/AppDataPaths.h
@@ -45,6 +52,22 @@ set(BACKEND_SOURCES
 add_library(wam_backend STATIC ${BACKEND_SOURCES})
 target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent)
 target_include_directories(wam_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(QT_VERSION_MAJOR EQUAL 6)
+    qt_add_resources(wam_backend "wam_builtin_rules"
+        PREFIX "/windowsappdatamanager/rules"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/rules"
+        FILES
+            rules/schema.json
+            rules/builtin/chrome.json
+            rules/builtin/chromium.json
+            rules/builtin/discord.json
+            rules/builtin/vscode.json
+            rules/builtin/jetbrains.json
+            rules/builtin/windows-temp.json
+            rules/builtin/npm-cache.json
+    )
+endif()
 
 set(PROJECT_SOURCES
     main.cpp

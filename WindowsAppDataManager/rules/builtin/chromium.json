@@ -1,0 +1,66 @@
+{
+  "$schema": "../schema.json",
+  "id": "chromium",
+  "version": "1",
+  "name": "Chromium",
+  "publisher": "The Chromium Authors",
+  "applicationCategory": "浏览器",
+  "executablePath": "%LOCALAPPDATA%/Chromium/Application/chrome.exe",
+  "installPath": "%LOCALAPPDATA%/Chromium/Application",
+  "identifiers": {
+    "registryDisplayNames": ["Chromium"]
+  },
+  "locations": [
+    { "scope": "local", "path": "Chromium" }
+  ],
+  "entries": [
+    {
+      "id": "default-cache",
+      "path": "User Data/Default/Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "移除后网页资源会按需重新下载，首次访问可能变慢。"
+    },
+    {
+      "id": "default-code-cache",
+      "path": "User Data/Default/Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本编译缓存会在后续浏览过程中重新生成。"
+    },
+    {
+      "id": "default-gpu-cache",
+      "path": "User Data/Default/GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次渲染可能稍慢。"
+    },
+    {
+      "id": "crash-reports",
+      "path": "User Data/Crashpad/reports",
+      "category": "crash-dump",
+      "risk": "low",
+      "rebuildable": false,
+      "impact": "移除后无法继续分析这些旧崩溃，不影响浏览器正常启动。"
+    },
+    {
+      "id": "default-session",
+      "path": "User Data/Default/Session Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能导致退出登录或丢失尚未同步的网页状态。"
+    },
+    {
+      "id": "default-credentials",
+      "path": "User Data/Default/Login Data",
+      "category": "credential",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含登录凭据相关数据，默认禁止处理。"
+    }
+  ]
+}

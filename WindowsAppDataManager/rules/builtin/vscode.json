@@ -1,0 +1,78 @@
+{
+  "$schema": "../schema.json",
+  "id": "visual-studio-code",
+  "version": "1",
+  "name": "Visual Studio Code",
+  "publisher": "Microsoft Corporation",
+  "applicationCategory": "开发工具",
+  "executablePath": "%LOCALAPPDATA%/Programs/Microsoft VS Code/Code.exe",
+  "installPath": "%LOCALAPPDATA%/Programs/Microsoft VS Code",
+  "identifiers": {
+    "registryDisplayNames": [
+      "Microsoft Visual Studio Code",
+      "Microsoft Visual Studio Code (User)"
+    ],
+    "registryPublishers": ["Microsoft Corporation"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Code" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "资源缓存会在编辑器后续运行时重新生成。"
+    },
+    {
+      "id": "cached-data",
+      "path": "CachedData",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "版本缓存可重新生成，下一次启动可能稍慢。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示界面可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，编辑器仍会生成新日志。"
+    },
+    {
+      "id": "workspace-storage",
+      "path": "User/workspaceStorage",
+      "category": "workspace",
+      "risk": "caution",
+      "rebuildable": false,
+      "impact": "可能丢失工作区界面状态、扩展状态或未同步的本地信息。"
+    },
+    {
+      "id": "global-storage",
+      "path": "User/globalStorage",
+      "category": "user-data",
+      "risk": "caution",
+      "rebuildable": false,
+      "impact": "可能包含扩展和编辑器持久状态，不应自动处理。"
+    }
+  ]
+}

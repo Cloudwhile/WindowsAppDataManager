@@ -60,7 +60,10 @@ enum class EvidenceStatus {
     Matched,
     Partial,
     Unavailable,
-    Conflict
+    Conflict,
+    NotFound,
+    Incomplete,
+    Ambiguous
 };
 
 struct EvidenceInfo {

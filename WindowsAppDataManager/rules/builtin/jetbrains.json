@@ -1,0 +1,56 @@
+{
+  "$schema": "../schema.json",
+  "id": "jetbrains",
+  "version": "1",
+  "name": "JetBrains IDE",
+  "publisher": "JetBrains s.r.o.",
+  "applicationCategory": "开发工具",
+  "executablePath": "%LOCALAPPDATA%/JetBrains/Toolbox/bin/jetbrains-toolbox.exe",
+  "installPath": "%LOCALAPPDATA%/JetBrains/Toolbox",
+  "locations": [
+    { "scope": "local", "path": "JetBrains" },
+    { "scope": "roaming", "path": "JetBrains" }
+  ],
+  "entries": [
+    {
+      "id": "caches",
+      "path": "caches",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "索引和派生缓存会重新生成，下一次打开项目可能明显变慢。"
+    },
+    {
+      "id": "logs",
+      "path": "log",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，不影响 IDE 正常运行。"
+    },
+    {
+      "id": "options",
+      "path": "options",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含 IDE 设置，默认禁止处理。"
+    },
+    {
+      "id": "plugins",
+      "path": "plugins",
+      "category": "extension",
+      "risk": "caution",
+      "rebuildable": "unknown",
+      "impact": "可能包含本地安装的插件及其状态，重新下载能力无法保证。"
+    },
+    {
+      "id": "workspace",
+      "path": "workspace",
+      "category": "workspace",
+      "risk": "caution",
+      "rebuildable": false,
+      "impact": "可能包含项目与窗口状态，不应自动处理。"
+    }
+  ]
+}

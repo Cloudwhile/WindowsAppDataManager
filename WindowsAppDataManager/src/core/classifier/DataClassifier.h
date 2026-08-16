@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../models/ApplicationInfo.h"
+#include "../../models/RuleDefinition.h"
 
 #include <filesystem>
 
@@ -18,6 +19,9 @@ struct Classification {
 class DataClassifier final {
 public:
     [[nodiscard]] Classification classify(const std::filesystem::path &relativePath) const;
+    [[nodiscard]] Classification classify(const std::filesystem::path &relativePath,
+                                          const QVector<RuleEntry> &applicationRules,
+                                          const QString &ruleSource) const;
 };
 
 } // namespace wam::core

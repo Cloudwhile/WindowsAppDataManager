@@ -1,7 +1,9 @@
 #include "DataClassifier.h"
 
-#include <QFileInfo>
 #include <QStringList>
+
+#include <optional>
+#include <utility>
 
 namespace wam::core {
 namespace {
@@ -9,9 +11,9 @@ namespace {
 QString pathPart(const std::filesystem::path &path)
 {
 #ifdef _WIN32
-    return QString::fromStdWString(path.generic_wstring()).toLower();
+    return QString::fromStdWString(path.generic_wstring()).toCaseFolded();
 #else
-    return QString::fromStdString(path.generic_string()).toLower();
+    return QString::fromStdString(path.generic_string()).toCaseFolded();
 #endif
 }
 
@@ -24,6 +26,28 @@ QStringList components(const std::filesystem::path &path)
             result.append(value);
     }
     return result;
+}
+
+QString normalizedPath(const std::filesystem::path &path)
+{
+    QString value = pathPart(path).trimmed();
+    value.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    while (value.startsWith(QStringLiteral("./")))
+        value.remove(0, 2);
+    while (value.endsWith(QLatin1Char('/')))
+        value.chop(1);
+    return value;
+}
+
+QString normalizedRulePath(QString path)
+{
+    path = path.trimmed().toCaseFolded();
+    path.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    while (path.startsWith(QStringLiteral("./")))
+        path.remove(0, 2);
+    while (path.endsWith(QLatin1Char('/')))
+        path.chop(1);
+    return path;
 }
 
 bool hasComponent(const QStringList &values, const QStringList &candidates)
@@ -55,6 +79,12 @@ bool hasSuffix(const QString &fileName, const QStringList &suffixes)
     return false;
 }
 
+bool pathPrefixMatches(const QString &path, const QString &prefix)
+{
+    return !prefix.isEmpty()
+            && (path == prefix || path.startsWith(prefix + QLatin1Char('/')));
+}
+
 Classification makeClassification(QString id,
                                   DataCategory category,
                                   RiskLevel risk,
@@ -66,13 +96,10 @@ Classification makeClassification(QString id,
             std::move(impact), std::move(ruleSource)};
 }
 
-} // namespace
-
-Classification DataClassifier::classify(const std::filesystem::path &relativePath) const
+std::optional<Classification> sensitiveClassification(
+        const QStringList &pathComponents,
+        const QString &fileName)
 {
-    const QStringList pathComponents = components(relativePath);
-    const QString fileName = pathPart(relativePath.filename());
-
     if (componentContains(pathComponents,
                           {QStringLiteral("credential"), QStringLiteral("password"),
                            QStringLiteral("keychain"), QStringLiteral("login data")})) {
@@ -82,9 +109,16 @@ Classification DataClassifier::classify(const std::filesystem::path &relativePat
                                   QStringLiteral("启发式 / credential-protection"));
     }
 
+    if (componentContains(pathComponents, {QStringLiteral("cookie")})) {
+        return makeClassification(QStringLiteral("cookie"), DataCategory::Cookie,
+                                  RiskLevel::High, RebuildableState::No,
+                                  QStringLiteral("可能导致退出登录或丢失网站与应用偏好。"),
+                                  QStringLiteral("启发式 / cookie-data"));
+    }
+
     if (componentContains(pathComponents,
-                          {QStringLiteral("cookie"), QStringLiteral("session"),
-                           QStringLiteral("local storage"), QStringLiteral("indexeddb")})) {
+                          {QStringLiteral("session"), QStringLiteral("local storage"),
+                           QStringLiteral("indexeddb")})) {
         return makeClassification(QStringLiteral("session"), DataCategory::Session,
                                   RiskLevel::High, RebuildableState::No,
                                   QStringLiteral("可能导致退出登录或丢失未同步的应用状态。"),
@@ -100,7 +134,37 @@ Classification DataClassifier::classify(const std::filesystem::path &relativePat
                                   QStringLiteral("数据库可能包含用户数据或应用状态，不能自动清理。"),
                                   QStringLiteral("启发式 / database"));
     }
+    return std::nullopt;
+}
 
+std::optional<Classification> applicationRuleClassification(
+        const std::filesystem::path &relativePath,
+        const QVector<RuleEntry> &applicationRules,
+        const QString &source)
+{
+    const QString path = normalizedPath(relativePath);
+    const RuleEntry *bestMatch = nullptr;
+    qsizetype bestLength = -1;
+    for (const RuleEntry &entry : applicationRules) {
+        const QString prefix = normalizedRulePath(entry.path);
+        if (!pathPrefixMatches(path, prefix) || prefix.size() <= bestLength)
+            continue;
+        bestMatch = &entry;
+        bestLength = prefix.size();
+    }
+    if (!bestMatch)
+        return std::nullopt;
+
+    const QString effectiveSource = source.isEmpty()
+            ? QStringLiteral("应用规则 / %1").arg(bestMatch->id) : source;
+    return makeClassification(bestMatch->id, bestMatch->category, bestMatch->risk,
+                              bestMatch->rebuildable, bestMatch->impact,
+                              effectiveSource);
+}
+
+Classification heuristicClassification(const QStringList &pathComponents,
+                                        const QString &fileName)
+{
     if (componentContains(pathComponents,
                           {QStringLiteral("workspace"), QStringLiteral("user data"),
                            QStringLiteral("userdata"), QStringLiteral("savegame"),
@@ -175,6 +239,30 @@ Classification DataClassifier::classify(const std::filesystem::path &relativePat
                               RiskLevel::Unknown, RebuildableState::Unknown,
                               QStringLiteral("缺少足够证据，不会自动进入任何清理计划。"),
                               QStringLiteral("启发式 / 未分类"));
+}
+
+} // namespace
+
+Classification DataClassifier::classify(const std::filesystem::path &relativePath) const
+{
+    return classify(relativePath, {}, {});
+}
+
+Classification DataClassifier::classify(
+        const std::filesystem::path &relativePath,
+        const QVector<RuleEntry> &applicationRules,
+        const QString &ruleSource) const
+{
+    const QStringList pathComponents = components(relativePath);
+    const QString fileName = pathPart(relativePath.filename());
+
+    if (const auto sensitive = sensitiveClassification(pathComponents, fileName))
+        return *sensitive;
+    if (const auto ruleMatch = applicationRuleClassification(
+                relativePath, applicationRules, ruleSource)) {
+        return *ruleMatch;
+    }
+    return heuristicClassification(pathComponents, fileName);
 }
 
 } // namespace wam::core
