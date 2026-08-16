@@ -1,0 +1,81 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: zh-CN
+tone_instructions: "使用简洁、具体、可执行的中文；优先指出正确性、安全性、并发和回归风险，并区分阻断问题与可选建议。"
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  review_details: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: false
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  poem: false
+
+  path_filters:
+    - "!out/**"
+    - "!.vs/**"
+    - "!Preview/**"
+    - "!WindowsAppDataManager/resources/Icons/**"
+
+  path_instructions:
+    - path: "WindowsAppDataManager/src/core/**"
+      instructions: "重点审查分类与归属解析的证据语义、确定性和保守边界；未知、不可用、部分或歧义证据不得被提升为安全或已卸载，单一信号缺失不得证明残留。"
+
+    - path: "WindowsAppDataManager/src/platform/windows/**"
+      instructions: "重点审查 Win32 资源生命周期、Unicode 与长路径、重解析点、访问拒绝、API 部分结果、签名与安装证据，以及错误语义是否完整保留。"
+
+    - path: "WindowsAppDataManager/src/services/**"
+      instructions: "重点审查后台扫描、取消、节流、快照生命周期和线程边界；工作线程不得直接访问 QML 对象，跨线程结果应明确排队并保持所有权安全。"
+
+    - path: "WindowsAppDataManager/**/*.qml"
+      instructions: "重点审查 QML 绑定与模型角色、键盘和可访问性、1024×640 下的响应式布局、Light/Dark 与 Reduced/Off 动画；业务逻辑应留在 Model、ViewModel 或 Service，并优先复用 components。"
+
+    - path: "WindowsAppDataManager/rules/**/*.json"
+      instructions: "校验规则是否符合 schema、标识符是否精确、路径是否受约束、风险与 rebuildable 是否一致；未知数据不得默认安全。"
+
+    - path: "WindowsAppDataManager/tests/**"
+      instructions: "检查是否覆盖完整、部分、不可用、歧义、冲突和缺失证据，测试应确定性且不依赖当前机器已安装的软件。"
+
+    - path: ".github/workflows/**"
+      instructions: "检查最小权限、第三方 Action 固定版本、缓存键、Windows/MSVC/Qt 版本一致性，以及 configure、qmllint、build、ctest 门禁是否都真实执行。"
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - WIP
+      - "DO NOT REVIEW"
+
+  tools:
+    github-checks:
+      enabled: true
+      timeout_ms: 900000
+
+    actionlint:
+      enabled: true
+
+    zizmor:
+      enabled: true
+
+    yamllint:
+      enabled: true
+
+    gitleaks:
+      enabled: true
+
+    clang:
+      enabled: true
+
+    cppcheck:
+      enabled: true
+
+chat:
+  auto_reply: false

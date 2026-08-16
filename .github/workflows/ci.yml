@@ -1,0 +1,92 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Qt 6.9.2 / MSVC 2022
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    env:
+      BUILD_DIR: out/build/ci
+      QT_VERSION: 6.9.2
+      QT_ARCH: win64_msvc2022_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: ${{ env.QT_ARCH }}
+          cache: true
+          cache-key-prefix: windows-msvc2022-qt
+
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake
+          -S .
+          -B "$env:BUILD_DIR"
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DBUILD_TESTING=ON
+          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: QML lint
+        shell: pwsh
+        run: >
+          cmake
+          --build "$env:BUILD_DIR"
+          --config Debug
+          --target WindowsAppDataManager_qmllint
+          --parallel 2
+
+      - name: Build
+        shell: pwsh
+        run: >
+          cmake
+          --build "$env:BUILD_DIR"
+          --config Debug
+          --parallel 2
+
+      - name: Test
+        shell: pwsh
+        run: >
+          ctest
+          --test-dir "$env:BUILD_DIR"
+          -C Debug
+          --output-on-failure
+          --no-tests=error
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: windows-ci-diagnostics-${{ github.run_id }}
+          path: |
+            out/build/ci/Testing/Temporary/
+            out/build/ci/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+          retention-days: 7
