@@ -60,8 +60,6 @@ private:
 
     ApplicationListModel *m_applicationModel = nullptr;
     services::ScanService m_service;
-    QStringList m_roots;
-    QString m_targetPath;
     QString m_currentPath;
     QString m_statusText = QStringLiteral("尚未扫描");
     QString m_lastScanText = QStringLiteral("尚未扫描");

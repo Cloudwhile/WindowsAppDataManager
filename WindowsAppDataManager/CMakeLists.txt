@@ -39,10 +39,14 @@ set(BACKEND_SOURCES
     src/models/InstallationEvidence.h
     src/models/RuleDefinition.h
     src/models/ScanResult.h
+    src/platform/windows/appx/AppxPackageCatalog.cpp
+    src/platform/windows/appx/AppxPackageCatalog.h
     src/platform/windows/filesystem/AppDataPaths.cpp
     src/platform/windows/filesystem/AppDataPaths.h
     src/platform/windows/filesystem/ReparsePoint.cpp
     src/platform/windows/filesystem/ReparsePoint.h
+    src/platform/windows/registry/InstalledApplicationRegistry.cpp
+    src/platform/windows/registry/InstalledApplicationRegistry.h
     src/services/ScanService.cpp
     src/services/ScanService.h
     src/services/SettingsService.cpp
@@ -51,6 +55,9 @@ set(BACKEND_SOURCES
 
 add_library(wam_backend STATIC ${BACKEND_SOURCES})
 target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent)
+if(WIN32)
+    target_link_libraries(wam_backend PRIVATE windowsapp advapi32)
+endif()
 target_include_directories(wam_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(QT_VERSION_MAJOR EQUAL 6)

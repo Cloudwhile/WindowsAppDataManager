@@ -1,43 +1,21 @@
 #include "ScanViewModel.h"
 
-#include "../platform/windows/filesystem/AppDataPaths.h"
-
 #include <QDateTime>
 #include <QDir>
-#include <QFileInfo>
 
 #include <algorithm>
 
 namespace wam::qmlmodels {
-namespace {
-
-QString displayTarget(const QStringList &roots)
-{
-    if (roots.isEmpty())
-        return QStringLiteral("未找到可扫描的 AppData 目录");
-    if (roots.size() == 1)
-        return QDir::toNativeSeparators(roots.constFirst());
-
-    const QFileInfo first(roots.constFirst());
-    const QString name = first.fileName().toLower();
-    if (name == QStringLiteral("local") || name == QStringLiteral("roaming")
-            || name == QStringLiteral("locallow")) {
-        return QDir::toNativeSeparators(first.dir().absolutePath());
-    }
-    return QStringLiteral("%1 个 AppData 扫描范围").arg(roots.size());
-}
-
-} // namespace
 
 ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *parent)
     : QObject(parent),
       m_applicationModel(applicationModel),
-      m_service(this),
-      m_roots(platform::windows::AppDataPaths::roots()),
-      m_targetPath(displayTarget(m_roots))
+      m_service(this)
 {
     Q_ASSERT(m_applicationModel);
 
+    connect(&m_service, &services::ScanService::targetPathChanged,
+            this, &ScanViewModel::targetPathChanged);
     connect(&m_service, &services::ScanService::scanStarted, this, [this] {
         setRunning(true);
         setProgress(0);
@@ -87,7 +65,7 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
 bool ScanViewModel::running() const { return m_running; }
 int ScanViewModel::progress() const { return m_progress; }
 QString ScanViewModel::currentPath() const { return m_currentPath; }
-QString ScanViewModel::targetPath() const { return m_targetPath; }
+QString ScanViewModel::targetPath() const { return m_service.targetPath(); }
 QString ScanViewModel::statusText() const { return m_statusText; }
 QString ScanViewModel::lastScanText() const { return m_lastScanText; }
 QString ScanViewModel::errorMessage() const { return m_errorMessage; }
@@ -107,13 +85,7 @@ void ScanViewModel::startScan()
 {
     if (m_running)
         return;
-    m_roots = platform::windows::AppDataPaths::roots();
-    const QString nextTarget = displayTarget(m_roots);
-    if (nextTarget != m_targetPath) {
-        m_targetPath = nextTarget;
-        emit targetPathChanged();
-    }
-    m_service.startScan(m_roots);
+    m_service.startScan();
 }
 
 void ScanViewModel::cancelScan()

@@ -4,9 +4,14 @@
 #include "../core/classifier/RiskAssessment.h"
 #include "../core/resolver/AppResolver.h"
 #include "../core/scanner/DirectoryScanner.h"
+#include "../platform/windows/filesystem/AppDataPaths.h"
+#include "../platform/windows/appx/AppxPackageCatalog.h"
+#include "../platform/windows/registry/InstalledApplicationRegistry.h"
 
 #include <QDir>
+#include <QLoggingCategory>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QHash>
 #include <QMetaObject>
 #include <QtConcurrentRun>
@@ -18,6 +23,55 @@
 namespace wam::services {
 namespace {
 
+Q_LOGGING_CATEGORY(scanLog, "wam.scan")
+
+QString evidenceAvailabilityName(InstallationEvidenceAvailability availability)
+{
+    switch (availability) {
+    case InstallationEvidenceAvailability::Complete:
+        return QStringLiteral("完整");
+    case InstallationEvidenceAvailability::Partial:
+        return QStringLiteral("部分可用");
+    case InstallationEvidenceAvailability::Unavailable:
+        return QStringLiteral("不可用");
+    }
+    return QStringLiteral("未知");
+}
+
+void logEvidenceIssues(const QString &source,
+                       InstallationEvidenceAvailability availability,
+                       const QStringList &issues)
+{
+    if (issues.isEmpty() && availability == InstallationEvidenceAvailability::Complete)
+        return;
+
+    const QString detail = issues.isEmpty()
+            ? QStringLiteral("平台未提供技术详情")
+            : issues.join(QStringLiteral(" | "));
+    qCWarning(scanLog).noquote()
+            << QStringLiteral("安装证据采集警告 [%1，状态：%2，问题：%3 条]：%4")
+                       .arg(source,
+                            evidenceAvailabilityName(availability),
+                            QString::number(issues.size()),
+                            detail);
+}
+
+QString displayTarget(const QStringList &roots)
+{
+    if (roots.isEmpty())
+        return QStringLiteral("未找到可扫描的 AppData 目录");
+    if (roots.size() == 1)
+        return QDir::toNativeSeparators(roots.constFirst());
+
+    const QFileInfo first(roots.constFirst());
+    const QString name = first.fileName().toLower();
+    if (name == QStringLiteral("local") || name == QStringLiteral("roaming")
+            || name == QStringLiteral("locallow")) {
+        return QDir::toNativeSeparators(first.dir().absolutePath());
+    }
+    return QStringLiteral("%1 个 AppData 扫描范围").arg(roots.size());
+}
+
 QString pathToQString(const std::filesystem::path &path)
 {
 #ifdef _WIN32
@@ -25,6 +79,80 @@ QString pathToQString(const std::filesystem::path &path)
 #else
     return QString::fromStdString(path.string());
 #endif
+}
+
+InstallationEvidenceSnapshot collectInstallationEvidence()
+{
+    InstallationEvidenceSnapshot snapshot;
+
+    const platform::windows::RegistryInstallQueryResult registry =
+            platform::windows::InstalledApplicationRegistry::query();
+    if (!registry.supported) {
+        snapshot.registry.availability = InstallationEvidenceAvailability::Unavailable;
+    } else if (registry.complete) {
+        snapshot.registry.availability = InstallationEvidenceAvailability::Complete;
+    } else {
+        snapshot.registry.availability = InstallationEvidenceAvailability::Partial;
+    }
+    snapshot.registry.records.reserve(registry.entries.size());
+    for (const platform::windows::RegistryInstallEntry &entry : registry.entries) {
+        if (entry.displayName.trimmed().isEmpty())
+            continue;
+        const QString view = entry.view == platform::windows::RegistryView::Registry32
+                ? QStringLiteral("32") : QStringLiteral("64");
+        snapshot.registry.records.append({
+            QStringLiteral("%1|%2").arg(entry.uninstallKeyPath, view),
+            entry.displayName,
+            entry.publisher,
+            entry.installLocation
+        });
+    }
+    snapshot.registry.issues.reserve(registry.issues.size());
+    for (const platform::windows::RegistryReadIssue &issue : registry.issues) {
+        const QString hive = issue.hive == platform::windows::RegistryHive::CurrentUser
+                ? QStringLiteral("HKCU") : QStringLiteral("HKLM");
+        const QString view = issue.view == platform::windows::RegistryView::Registry32
+                ? QStringLiteral("32") : QStringLiteral("64");
+        snapshot.registry.issues.append(
+                QStringLiteral("%1 %2 位 / %3 / Win32 %4：%5")
+                        .arg(hive,
+                             view,
+                             issue.keyPath,
+                             QString::number(issue.nativeError),
+                             issue.technicalDetail));
+    }
+
+    const platform::windows::AppxPackageQueryResult appx =
+            platform::windows::AppxPackageCatalog::installedForCurrentUser();
+    if (!appx.available) {
+        snapshot.appx.availability = InstallationEvidenceAvailability::Unavailable;
+    } else if (appx.issues.isEmpty()) {
+        snapshot.appx.availability = InstallationEvidenceAvailability::Complete;
+    } else {
+        snapshot.appx.availability = InstallationEvidenceAvailability::Partial;
+    }
+    snapshot.appx.issues = appx.issues;
+    snapshot.appx.records.reserve(appx.packages.size());
+    for (const platform::windows::AppxPackageInfo &package : appx.packages) {
+        if (package.resourcePackage || package.name.trimmed().isEmpty())
+            continue;
+        snapshot.appx.records.append({
+            package.name,
+            package.publisher,
+            package.familyName,
+            package.displayName,
+            package.installPath
+        });
+    }
+
+    logEvidenceIssues(QStringLiteral("Registry"),
+                      snapshot.registry.availability,
+                      snapshot.registry.issues);
+    logEvidenceIssues(QStringLiteral("AppX / MSIX"),
+                      snapshot.appx.availability,
+                      snapshot.appx.issues);
+
+    return snapshot;
 }
 
 void mergeDataGroup(QVector<DataGroupInfo> &groups, const DataGroupInfo &incoming)
@@ -52,6 +180,9 @@ void mergeApplication(ApplicationInfo &application, ApplicationInfo incoming)
     application.unknownSize += incoming.unknownSize;
     if (incoming.lastModified > application.lastModified)
         application.lastModified = incoming.lastModified;
+    application.confidence = std::max(application.confidence, incoming.confidence);
+    if (incoming.installState == InstallState::Installed)
+        application.installState = InstallState::Installed;
 
     if (!incoming.location.isEmpty() && !application.location.contains(incoming.location)) {
         if (!application.location.isEmpty())
@@ -61,6 +192,18 @@ void mergeApplication(ApplicationInfo &application, ApplicationInfo incoming)
 
     for (const DataGroupInfo &group : incoming.dataGroups)
         mergeDataGroup(application.dataGroups, group);
+
+    for (const EvidenceInfo &evidence : incoming.evidence) {
+        const bool alreadyPresent = std::any_of(
+                application.evidence.cbegin(), application.evidence.cend(),
+                [&evidence](const EvidenceInfo &existing) {
+            return existing.source == evidence.source
+                    && existing.status == evidence.status
+                    && existing.detail == evidence.detail;
+        });
+        if (!alreadyPresent)
+            application.evidence.append(evidence);
+    }
 }
 
 ApplicationInfo scanTarget(const core::ScanTarget &target,
@@ -76,7 +219,8 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
     const auto visitor = [&](const std::filesystem::path &relativePath,
                              quint64 size,
                              qint64) {
-        core::Classification classification = classifier.classify(relativePath);
+        core::Classification classification = classifier.classify(
+                relativePath, target.classificationRules, target.ruleSource);
         if (application.confidence < 50) {
             classification.risk = RiskLevel::Unknown;
             classification.rebuildable = RebuildableState::Unknown;
@@ -154,7 +298,7 @@ ScanResult performScan(const QStringList &roots,
 
     ScanResult result;
     result.roots = roots;
-    core::AppResolver resolver;
+    core::AppResolver resolver(collectInstallationEvidence());
     const QVector<core::ScanTarget> targets = resolver.discoverTargets(roots);
     QHash<QString, int> applicationIndexes;
 
@@ -207,8 +351,12 @@ ScanResult performScan(const QStringList &roots,
 } // namespace
 
 ScanService::ScanService(QObject *parent)
-    : QObject(parent)
+    : QObject(parent),
+      m_targetPath(displayTarget(platform::windows::AppDataPaths::roots()))
 {
+    // 在主线程完成静态规则资源注册，后台扫描只读取不可变目录。
+    (void)core::rules::RuleCatalog::builtIn();
+
     connect(&m_watcher, &QFutureWatcher<ScanResult>::finished, this, [this] {
         try {
             emit scanCompleted(m_watcher.result());
@@ -233,10 +381,23 @@ bool ScanService::isRunning() const
     return m_watcher.isRunning();
 }
 
+QString ScanService::targetPath() const
+{
+    return m_targetPath;
+}
+
+void ScanService::startScan()
+{
+    if (isRunning())
+        return;
+    startScan(platform::windows::AppDataPaths::roots());
+}
+
 void ScanService::startScan(const QStringList &roots)
 {
     if (isRunning())
         return;
+    setTargetPath(displayTarget(roots));
     if (roots.isEmpty()) {
         emit scanFailed(QStringLiteral("找不到 AppData 目录"),
                         QStringLiteral("LOCALAPPDATA / APPDATA / LocalLow 均不可用"));
@@ -261,6 +422,14 @@ void ScanService::cancelScan()
 {
     if (m_cancelRequested)
         m_cancelRequested->store(true, std::memory_order_relaxed);
+}
+
+void ScanService::setTargetPath(QString targetPath)
+{
+    if (m_targetPath == targetPath)
+        return;
+    m_targetPath = std::move(targetPath);
+    emit targetPathChanged();
 }
 
 } // namespace wam::services
