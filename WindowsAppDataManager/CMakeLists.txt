@@ -214,6 +214,16 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
     )
+
+    add_executable(wam_installation_evidence_tests
+        tests/tst_installation_evidence.cpp
+    )
+    target_link_libraries(wam_installation_evidence_tests PRIVATE wam_backend Qt::Test)
+    add_test(NAME wam_installation_evidence_tests COMMAND wam_installation_evidence_tests)
+    set_tests_properties(wam_installation_evidence_tests PROPERTIES
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
+    )
 endif()
 
 if(WIN32 AND QT_VERSION_MAJOR EQUAL 6 AND TARGET Qt6::windeployqt)
