@@ -6,6 +6,7 @@ QtObject {
     id: store
 
     property int currentIndex: 0
+    property string currentApplicationId: ""
     readonly property ApplicationListModel applications: Backend.applications
     readonly property int dataRevision: applications.revision
     readonly property var selectedApplication: {
@@ -37,7 +38,7 @@ QtObject {
             "reclaimableText": "0 B",
             "protectedSizeText": "0 B",
             "unknownSizeText": "0 B",
-            "accent": "#7f8a96",
+            "accentIndex": 0,
             "summary": "开始扫描后，这里会显示应用归属、数据分类与识别证据。",
             "dataGroups": [],
             "evidence": []
@@ -45,18 +46,38 @@ QtObject {
     }
 
     function selectApplication(index) {
-        if (index >= 0 && index < applications.count)
+        if (index >= 0 && index < applications.count) {
             currentIndex = index
+            currentApplicationId = applications.get(index).appId
+        }
+    }
+
+    function restoreSelection() {
+        if (applications.count === 0) {
+            currentIndex = 0
+            currentApplicationId = ""
+            return
+        }
+
+        const restoredIndex = applications.indexOfId(currentApplicationId)
+        if (restoredIndex >= 0) {
+            currentIndex = restoredIndex
+            return
+        }
+
+        currentIndex = Math.min(currentIndex, applications.count - 1)
+        currentApplicationId = applications.get(currentIndex).appId
     }
 
     property Connections modelConnections: Connections {
         target: store.applications
 
         function onCountChanged() {
-            if (store.applications.count === 0)
-                store.currentIndex = 0
-            else if (store.currentIndex >= store.applications.count)
-                store.currentIndex = store.applications.count - 1
+            store.restoreSelection()
+        }
+
+        function onRevisionChanged() {
+            store.restoreSelection()
         }
     }
 }

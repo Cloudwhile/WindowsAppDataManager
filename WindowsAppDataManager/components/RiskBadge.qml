@@ -5,12 +5,12 @@ Rectangle {
 
     property int level: 0
     property string label: ""
-    readonly property color accent: level === 0 ? Theme.green
-                                    : level === 1 ? Theme.accent
-                                    : level === 2 ? Theme.amber
-                                    : level === 3 ? Theme.red
-                                    : level === 4 ? Theme.purple
-                                                  : Theme.neutral
+    readonly property color accent: level === 0 ? Theme.greenText
+                                    : level === 1 ? Theme.accentText
+                                    : level === 2 ? Theme.amberText
+                                    : level === 3 ? Theme.redText
+                                    : level === 4 ? Theme.purpleText
+                                                  : Theme.neutralText
     readonly property url iconSource: level === 0
                                           ? Qt.resolvedUrl("../resources/Icons/TablerCheck.svg")
                                           : level === 1

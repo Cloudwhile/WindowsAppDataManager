@@ -7,10 +7,23 @@ Rectangle {
     required property var rowData
     property bool expanded: false
 
+    function toggleExpanded() {
+        expanded = !expanded
+    }
+
     implicitHeight: contentColumn.implicitHeight + 20
     radius: Theme.radiusSmall
-    color: mouseArea.containsMouse ? Theme.surfaceHover : "transparent"
+    color: activeFocus || mouseArea.containsMouse ? Theme.surfaceHover : "transparent"
     clip: true
+    activeFocusOnTab: true
+    border.width: activeFocus ? 1 : 0
+    border.color: Theme.accent
+
+    Accessible.role: Accessible.Button
+    Accessible.name: rowData.categoryText + "，" + rowData.sizeText + "，"
+                     + rowData.riskText + "，" + (expanded ? "已展开" : "已折叠")
+    Accessible.description: rowData.impactText
+    Accessible.onPressAction: categoryRow.toggleExpanded()
 
     Behavior on color {
         ColorAnimation { duration: Motion.fast }
@@ -56,10 +69,13 @@ Rectangle {
                 Layout.preferredHeight: 16
                 source: Qt.resolvedUrl("../resources/Icons/TablerChevronDownFilled.svg")
                 color: Theme.textMuted
-                rotation: categoryRow.expanded ? 180 : 0
+                rotation: Motion.allowPosition && categoryRow.expanded ? 180 : 0
 
                 Behavior on rotation {
-                    NumberAnimation { duration: Motion.fast; easing.type: Easing.OutCubic }
+                    NumberAnimation {
+                        duration: Motion.allowPosition ? Motion.fast : 0
+                        easing.type: Easing.OutCubic
+                    }
                 }
             }
         }
@@ -101,7 +117,7 @@ Rectangle {
 
             Text {
                 text: categoryRow.rowData.rebuildableText
-                color: categoryRow.rowData.rebuildableState === 0 ? Theme.green
+                color: categoryRow.rowData.rebuildableState === 0 ? Theme.greenText
                        : categoryRow.rowData.rebuildableState === 1 ? Theme.textSecondary
                                                                    : Theme.neutral
                 font.pixelSize: 10
@@ -151,6 +167,13 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: categoryRow.expanded = !categoryRow.expanded
+        onClicked: {
+            categoryRow.forceActiveFocus()
+            categoryRow.toggleExpanded()
+        }
     }
+
+    Keys.onReturnPressed: categoryRow.toggleExpanded()
+    Keys.onEnterPressed: categoryRow.toggleExpanded()
+    Keys.onSpacePressed: categoryRow.toggleExpanded()
 }

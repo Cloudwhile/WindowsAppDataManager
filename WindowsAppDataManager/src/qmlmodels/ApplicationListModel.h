@@ -48,7 +48,7 @@ public:
         ReclaimableTextRole,
         ProtectedSizeTextRole,
         UnknownSizeTextRole,
-        AccentRole,
+        AccentIndexRole,
         SummaryRole,
         DataGroupsRole,
         EvidenceRole
@@ -76,6 +76,7 @@ public:
     [[nodiscard]] double maximumSizeValue() const;
 
     Q_INVOKABLE [[nodiscard]] QVariantMap get(int index) const;
+    Q_INVOKABLE [[nodiscard]] int indexOfId(const QString &applicationId) const;
 
     void setApplications(QVector<ApplicationInfo> applications);
     void clear();

@@ -86,7 +86,7 @@ AbstractButton {
                 anchors.centerIn: parent
                 visible: control.selected
                 source: Qt.resolvedUrl("../resources/Icons/TablerCheck.svg")
-                color: "#ffffff"
+                color: Theme.onAccent
             }
         }
     }

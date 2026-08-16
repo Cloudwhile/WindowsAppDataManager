@@ -30,12 +30,12 @@ Item {
                 Layout.preferredWidth: detail.paneMode ? 44 : 50
                 Layout.preferredHeight: width
                 radius: Theme.radiusMedium
-                color: detail.application.accent
+                color: Theme.applicationAccent(detail.application.accentIndex)
 
                 Text {
                     anchors.centerIn: parent
                     text: detail.application.shortName
-                    color: "#ffffff"
+                    color: Theme.applicationAccentText(detail.application.accentIndex)
                     font.pixelSize: detail.application.shortName.length > 2 ? 10 : 16
                     font.weight: Font.Bold
                 }

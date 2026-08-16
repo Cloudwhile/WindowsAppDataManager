@@ -8,14 +8,28 @@ Item {
     id: page
 
     required property ApplicationFilterModel filterModel
+    property bool scanning: false
     property string scanStatus: "尚未扫描"
     property string lastScanText: "尚未扫描"
+    property bool scanFailed: false
+    property bool partialResult: false
+    signal scanRequested()
     signal applicationSelected(int index)
 
     readonly property int visibleApplicationCount: filterModel.count
+    readonly property bool hasApplications: AppStore.applications.count > 0
+    readonly property bool hasActiveFilters: filterModel.searchText.trim().length > 0
+                                             || filterModel.riskFilter >= 0
+                                             || filterModel.installStateFilter >= 0
     readonly property string sortLabel: filterModel.sortMode === 0 ? "占用"
                                                 : filterModel.sortMode === 1 ? "名称"
                                                                               : "风险"
+
+    function clearFilters() {
+        filterModel.searchText = ""
+        filterModel.riskFilter = -1
+        filterModel.installStateFilter = -1
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -40,9 +54,11 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: AppStore.applications.count + " 个应用归属 · "
-                      + (page.lastScanText === "尚未扫描"
-                         ? page.scanStatus
-                         : "最近扫描于" + page.lastScanText)
+                      + (page.scanning ? page.scanStatus
+                         : page.scanFailed ? "本次扫描失败，当前显示上一次完整结果"
+                         : page.partialResult ? page.scanStatus
+                         : page.lastScanText === "尚未扫描" ? page.scanStatus
+                                                            : "最近扫描于" + page.lastScanText)
                 color: Theme.textSecondary
                 font.pixelSize: 12
             }
@@ -51,46 +67,8 @@ Item {
         ApplicationFilterBar {
             Layout.fillWidth: true
             Layout.preferredHeight: implicitHeight
+            visible: page.hasApplications
             filterModel: page.filterModel
-        }
-
-        Row {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 78
-            spacing: 1
-
-            Repeater {
-                model: [
-                    { "label": "当前结果", "value": page.visibleApplicationCount.toString(), "detail": "共 " + AppStore.applications.count + " 个应用归属", "color": Theme.accent },
-                    { "label": "全部占用", "value": AppStore.applications.totalSizeText, "detail": "全部应用聚合", "color": Theme.purple },
-                    { "label": "可重新生成", "value": AppStore.applications.reclaimableSizeText, "detail": "全部结果，仍需逐项验证", "color": Theme.green }
-                ]
-
-                delegate: Rectangle {
-                    id: summaryTile
-
-                    required property var modelData
-                    width: (parent.width - 2) / 3
-                    height: parent.height
-                    radius: Theme.radiusMedium
-                    color: Theme.surface
-                    border.width: 1
-                    border.color: Theme.border
-
-                    Column {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 16
-                        anchors.right: parent.right
-                        anchors.rightMargin: 10
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 2
-
-                        Text { width: parent.width; text: summaryTile.modelData.label; color: Theme.textMuted; font.pixelSize: 10; elide: Text.ElideRight }
-                        Text { width: parent.width; text: summaryTile.modelData.value; color: summaryTile.modelData.color; font.pixelSize: 19; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                        Text { width: parent.width; text: summaryTile.modelData.detail; color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideRight }
-                    }
-                }
-            }
         }
 
         Rectangle {
@@ -106,31 +84,17 @@ Item {
                 anchors.fill: parent
                 spacing: 0
 
-                RowLayout {
+                ApplicationListHeader {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
-                    spacing: 10
-
-                    Text {
-                        Layout.leftMargin: 14
-                        Layout.fillWidth: true
-                        text: page.visibleApplicationCount + " 个结果"
-                        color: Theme.textMuted
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
-                    }
-
-                    Text {
-                        text: page.sortLabel + (page.filterModel.sortDescending
+                    Layout.preferredHeight: page.hasApplications ? implicitHeight : 0
+                    visible: page.hasApplications
+                    resultCount: page.visibleApplicationCount
+                    totalCount: AppStore.applications.count
+                    totalSizeText: AppStore.applications.totalSizeText
+                    reclaimableSizeText: AppStore.applications.reclaimableSizeText
+                    sortText: page.sortLabel + (page.filterModel.sortDescending
                                                 ? "：降序" : "：升序")
-                        color: Theme.textMuted
-                        font.pixelSize: 10
-                    }
-
-                    Item { Layout.preferredWidth: 14 }
                 }
-
-                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.divider }
 
                 ListView {
                     id: applicationList
@@ -156,23 +120,34 @@ Item {
                 }
             }
 
-            Column {
+            EmptyState {
                 anchors.centerIn: parent
                 visible: page.visibleApplicationCount === 0
-                spacing: 5
-
-                ThemedIcon {
-                    width: 24
-                    height: 24
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    source: Qt.resolvedUrl("../resources/Icons/TablerZoom.svg")
-                    color: Theme.textMuted
-                }
-
-                Text {
-                    text: "没有符合条件的应用"
-                    color: Theme.textSecondary
-                    font.pixelSize: 12
+                width: Math.min(parent.width - 40, 520)
+                height: Math.min(parent.height - 20, 260)
+                iconSource: page.scanning && !page.hasApplications
+                            ? Qt.resolvedUrl("../resources/Icons/TablerActivityHeartbeat.svg")
+                            : page.hasApplications
+                              ? Qt.resolvedUrl("../resources/Icons/TablerZoom.svg")
+                              : Qt.resolvedUrl("../resources/Icons/TablerZoomScan.svg")
+                title: page.scanning && !page.hasApplications ? "正在分析应用归属"
+                                                              : page.hasApplications
+                                                                ? "没有符合条件的应用"
+                                                                : "尚无应用数据"
+                description: page.scanning && !page.hasApplications ? page.scanStatus
+                             : page.hasApplications
+                               ? "清除搜索与筛选条件可返回完整应用列表。"
+                               : "完成一次扫描后，可按名称、发布者、风险和安装状态查找应用。"
+                actionIconSource: page.hasApplications
+                                  ? Qt.resolvedUrl("../resources/Icons/TablerX.svg")
+                                  : Qt.resolvedUrl("../resources/Icons/TablerPlayerPlayFilled.svg")
+                actionTooltip: page.hasApplications ? "清除筛选" : "开始扫描"
+                actionVisible: !page.scanning && (!page.hasApplications || page.hasActiveFilters)
+                onActionRequested: {
+                    if (page.hasApplications)
+                        page.clearFilters()
+                    else
+                        page.scanRequested()
                 }
             }
         }

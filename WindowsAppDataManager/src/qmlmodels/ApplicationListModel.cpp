@@ -1,6 +1,5 @@
 #include "ApplicationListModel.h"
 
-#include <QColor>
 #include <QLocale>
 
 #include <algorithm>
@@ -129,20 +128,19 @@ QString evidenceStatusText(EvidenceStatus status)
     switch (status) {
     case EvidenceStatus::Matched: return QStringLiteral("匹配");
     case EvidenceStatus::Partial: return QStringLiteral("弱匹配");
-    case EvidenceStatus::Unavailable: return QStringLiteral("无结果");
+    case EvidenceStatus::Unavailable: return QStringLiteral("不可用");
     case EvidenceStatus::Conflict: return QStringLiteral("冲突");
+    case EvidenceStatus::NotFound: return QStringLiteral("未找到");
+    case EvidenceStatus::Incomplete: return QStringLiteral("部分可用");
+    case EvidenceStatus::Ambiguous: return QStringLiteral("多项匹配");
     }
-    return QStringLiteral("无结果");
+    return QStringLiteral("不可用");
 }
 
-QString accentFor(const QString &id)
+int accentIndexFor(const QString &id)
 {
-    static const QStringList palette {
-        QStringLiteral("#2f80ed"), QStringLiteral("#7b5cff"),
-        QStringLiteral("#168bd2"), QStringLiteral("#14a6b8"),
-        QStringLiteral("#a565d9"), QStringLiteral("#d47b35")
-    };
-    return palette.at(static_cast<int>(qHash(id) % static_cast<size_t>(palette.size())));
+    constexpr size_t paletteSize = 6;
+    return static_cast<int>(qHash(id) % paletteSize);
 }
 
 QVariantList groupMaps(const ApplicationInfo &application)
@@ -200,8 +198,35 @@ QVariant ApplicationListModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_applications.size())
         return {};
-    return applicationMap(m_applications.at(index.row())).value(
-            QString::fromLatin1(roleNames().value(role)));
+
+    const ApplicationInfo &application = m_applications.at(index.row());
+    switch (role) {
+    case AppIdRole: return application.id;
+    case AppNameRole: return application.name;
+    case ShortNameRole: return shortName(application.name);
+    case PublisherRole: return application.publisher;
+    case CategoryRole: return application.category;
+    case LocationRole: return application.location;
+    case ExecutablePathRole: return application.executablePath;
+    case InstallPathRole: return application.installPath;
+    case InstallStateRole: return static_cast<int>(application.installState);
+    case InstallStateTextRole: return installStateText(application.installState);
+    case ConfidenceRole: return application.confidence;
+    case SizeTextRole: return formatSize(application.totalSize);
+    case SizeValueRole: return static_cast<double>(application.totalSize);
+    case FileCountRole: return formatCount(application.fileCount);
+    case ModifiedRole: return modifiedText(application.lastModified);
+    case RiskTextRole: return riskText(application.risk);
+    case RiskLevelRole: return static_cast<int>(application.risk);
+    case ReclaimableTextRole: return formatSize(application.reclaimableSize);
+    case ProtectedSizeTextRole: return formatSize(application.protectedSize);
+    case UnknownSizeTextRole: return formatSize(application.unknownSize);
+    case AccentIndexRole: return accentIndexFor(application.id);
+    case SummaryRole: return application.summary;
+    case DataGroupsRole: return groupMaps(application);
+    case EvidenceRole: return evidenceMaps(application);
+    default: return {};
+    }
 }
 
 QHash<int, QByteArray> ApplicationListModel::roleNames() const
@@ -215,7 +240,8 @@ QHash<int, QByteArray> ApplicationListModel::roleNames() const
         {FileCountRole, "fileCount"}, {ModifiedRole, "modified"}, {RiskTextRole, "riskText"},
         {RiskLevelRole, "riskLevel"}, {ReclaimableTextRole, "reclaimableText"},
         {ProtectedSizeTextRole, "protectedSizeText"}, {UnknownSizeTextRole, "unknownSizeText"},
-        {AccentRole, "accent"}, {SummaryRole, "summary"}, {DataGroupsRole, "dataGroups"},
+        {AccentIndexRole, "accentIndex"}, {SummaryRole, "summary"},
+        {DataGroupsRole, "dataGroups"},
         {EvidenceRole, "evidence"}
     };
 }
@@ -260,6 +286,20 @@ QVariantMap ApplicationListModel::get(int index) const
     if (index < 0 || index >= m_applications.size())
         return {};
     return applicationMap(m_applications.at(index));
+}
+
+int ApplicationListModel::indexOfId(const QString &applicationId) const
+{
+    if (applicationId.isEmpty())
+        return -1;
+
+    const auto iterator = std::find_if(
+            m_applications.cbegin(), m_applications.cend(),
+            [&applicationId](const ApplicationInfo &application) {
+        return application.id == applicationId;
+    });
+    return iterator == m_applications.cend()
+            ? -1 : static_cast<int>(std::distance(m_applications.cbegin(), iterator));
 }
 
 void ApplicationListModel::setApplications(QVector<ApplicationInfo> applications)
@@ -307,7 +347,7 @@ QVariantMap ApplicationListModel::applicationMap(const ApplicationInfo &applicat
     map.insert(QStringLiteral("reclaimableText"), formatSize(application.reclaimableSize));
     map.insert(QStringLiteral("protectedSizeText"), formatSize(application.protectedSize));
     map.insert(QStringLiteral("unknownSizeText"), formatSize(application.unknownSize));
-    map.insert(QStringLiteral("accent"), accentFor(application.id));
+    map.insert(QStringLiteral("accentIndex"), accentIndexFor(application.id));
     map.insert(QStringLiteral("summary"), application.summary);
     map.insert(QStringLiteral("dataGroups"), groupMaps(application));
     map.insert(QStringLiteral("evidence"), evidenceMaps(application));

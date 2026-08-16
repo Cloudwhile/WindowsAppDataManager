@@ -8,13 +8,16 @@ Item {
 
     implicitHeight: 46
 
-    readonly property color statusColor: rowData.status === 0 ? Theme.green
-                                                 : rowData.status === 1 ? Theme.amber
-                                                 : rowData.status === 3 ? Theme.red
-                                                                       : Theme.neutral
+    readonly property bool warningStatus: rowData.status === 1
+                                          || rowData.status === 5
+                                          || rowData.status === 6
+    readonly property color statusColor: rowData.status === 0 ? Theme.greenText
+                                                 : warningStatus ? Theme.amberText
+                                                 : rowData.status === 3 ? Theme.redText
+                                                                       : Theme.neutralText
     readonly property url statusIconSource: rowData.status === 0
                                                 ? Qt.resolvedUrl("../resources/Icons/TablerCheck.svg")
-                                                : rowData.status === 1
+                                                : warningStatus
                                                   ? Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")
                                                 : rowData.status === 3
                                                   ? Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")

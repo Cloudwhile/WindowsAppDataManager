@@ -80,7 +80,7 @@ AbstractButton {
                 id: badgeText
                 anchors.centerIn: parent
                 text: control.badge
-                color: control.enabled ? Theme.red : Theme.textMuted
+                color: control.enabled ? Theme.redText : Theme.textMuted
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
             }

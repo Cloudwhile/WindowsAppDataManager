@@ -7,12 +7,12 @@ Item {
     property string label: ""
     property string value: ""
 
-    implicitHeight: value.length > 0 ? 43 : 0
+    implicitHeight: value.length > 0 ? 45 : 0
     visible: implicitHeight > 0
 
     Column {
         anchors.fill: parent
-        spacing: 3
+        spacing: 2
 
         Text {
             width: parent.width
@@ -22,13 +22,35 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        Text {
+        TextField {
             id: pathText
+
             width: parent.width
+            height: 25
             text: field.value
+            readOnly: true
+            selectByMouse: true
+            activeFocusOnTab: true
             color: Theme.textSecondary
+            selectionColor: Theme.accent
+            selectedTextColor: Theme.onAccent
             font.pixelSize: 11
-            elide: Text.ElideMiddle
+            leftPadding: 2
+            rightPadding: 2
+            topPadding: 0
+            bottomPadding: 0
+            clip: true
+
+            background: Rectangle {
+                color: "transparent"
+                border.width: pathText.activeFocus ? 1 : 0
+                border.color: Theme.accent
+                radius: Theme.radiusSmall
+            }
+
+            Accessible.role: Accessible.EditableText
+            Accessible.name: field.label
+            Accessible.description: field.value
         }
     }
 

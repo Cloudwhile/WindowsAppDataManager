@@ -42,6 +42,7 @@ public:
 
     [[nodiscard]] int count() const;
     Q_INVOKABLE [[nodiscard]] QVariantMap get(int proxyIndex) const;
+    Q_INVOKABLE [[nodiscard]] bool containsSourceIndex(int sourceIndex) const;
 
 signals:
     void searchTextChanged();

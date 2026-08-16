@@ -32,12 +32,12 @@ Rectangle {
             Layout.preferredWidth: 28
             Layout.preferredHeight: 28
             radius: 7
-            color: row.rowData.accent
+            color: Theme.applicationAccent(row.rowData.accentIndex)
 
             Text {
                 anchors.centerIn: parent
                 text: row.rowData.shortName
-                color: "#ffffff"
+                color: Theme.applicationAccentText(row.rowData.accentIndex)
                 font.pixelSize: row.rowData.shortName.length > 2 ? 8 : 11
                 font.weight: Font.Bold
             }
@@ -73,7 +73,7 @@ Rectangle {
         }
 
         RiskBadge {
-            Layout.preferredWidth: implicitWidth
+            Layout.preferredWidth: 72
             level: row.rowData.riskLevel
             label: row.rowData.riskText
         }

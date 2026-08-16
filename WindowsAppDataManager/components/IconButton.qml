@@ -8,7 +8,7 @@ AbstractButton {
     property string tooltip: ""
     property bool prominent: false
     property int iconSize: 18
-    property color symbolColor: prominent ? "#ffffff" : Theme.textSecondary
+    property color symbolColor: prominent ? Theme.onAccent : Theme.textSecondary
 
     implicitWidth: 36
     implicitHeight: 34

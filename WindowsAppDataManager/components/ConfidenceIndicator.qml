@@ -24,8 +24,8 @@ Item {
             Text {
                 width: 58
                 text: indicator.value + "%"
-                color: indicator.value >= 85 ? Theme.green
-                       : indicator.value >= 60 ? Theme.amber : Theme.red
+                color: indicator.value >= 85 ? Theme.greenText
+                       : indicator.value >= 60 ? Theme.amberText : Theme.redText
                 font.pixelSize: 12
                 font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignRight

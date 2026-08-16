@@ -105,15 +105,24 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             AppStore.qml
             theme/Theme.qml
             theme/Motion.qml
+            components/AppCommandBar.qml
+            components/AppSidebar.qml
+            components/AppStatusBar.qml
+            components/EmptyState.qml
+            components/InlineNotice.qml
+            components/ScanProgressStrip.qml
+            components/OverviewStats.qml
+            components/DispositionSummary.qml
+            components/OverviewApplicationList.qml
             components/IconButton.qml
             components/NavItem.qml
             components/RiskBadge.qml
             components/StatTile.qml
-            components/StorageRing.qml
             components/ThemedIcon.qml
             components/ApplicationRow.qml
             components/FilterComboBox.qml
             components/ApplicationFilterBar.qml
+            components/ApplicationListHeader.qml
             components/ApplicationDetailContent.qml
             components/ConfidenceIndicator.qml
             components/DataCategoryRow.qml
@@ -167,6 +176,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             resources/Icons/TablerSunFilled.svg
             resources/Icons/TablerX.svg
             resources/Icons/TablerZoom.svg
+            resources/Icons/TablerZoomScan.svg
     )
 endif()
 

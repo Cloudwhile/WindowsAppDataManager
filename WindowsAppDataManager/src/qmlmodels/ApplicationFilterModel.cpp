@@ -161,6 +161,14 @@ QVariantMap ApplicationFilterModel::get(int proxyIndex) const
     return result;
 }
 
+bool ApplicationFilterModel::containsSourceIndex(int sourceIndex) const
+{
+    const QAbstractItemModel *model = sourceModel();
+    if (!model || sourceIndex < 0 || sourceIndex >= model->rowCount())
+        return false;
+    return mapFromSource(model->index(sourceIndex, 0)).isValid();
+}
+
 bool ApplicationFilterModel::filterAcceptsRow(int sourceRow,
                                                const QModelIndex &sourceParent) const
 {

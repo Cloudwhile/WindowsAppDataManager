@@ -31,7 +31,7 @@ Item {
 
     readonly property color textPrimary: dark ? "#f3f6f9" : "#1d2733"
     readonly property color textSecondary: dark ? "#aeb9c5" : "#5f6d7a"
-    readonly property color textMuted: dark ? "#7e8a97" : "#87929e"
+    readonly property color textMuted: dark ? "#8e9aa6" : "#697582"
 
     readonly property color accent: dark ? "#58a8ff" : "#1473e6"
     readonly property color accentStrong: dark ? "#75b8ff" : "#075fc2"
@@ -48,9 +48,31 @@ Item {
     readonly property color neutral: dark ? "#a0aab5" : "#687582"
     readonly property color neutralSoft: dark ? "#2b323a" : "#e9edf1"
 
+    readonly property color accentText: dark ? "#8fc8ff" : "#075fc2"
+    readonly property color greenText: dark ? "#79dfa4" : "#167a41"
+    readonly property color amberText: dark ? "#ffd17a" : "#9a5200"
+    readonly property color redText: dark ? "#ffaaaa" : "#b4232b"
+    readonly property color purpleText: dark ? "#cbbcff" : "#6041a8"
+    readonly property color neutralText: dark ? "#c0c8d1" : "#56616d"
+    readonly property color onAccent: dark ? "#071624" : "#ffffff"
+    readonly property color scanTrack: dark ? "#294d72" : "#bed8f7"
+
     readonly property int radiusSmall: 5
     readonly property int radiusMedium: 9
     readonly property int radiusLarge: 13
+
+    function applicationAccent(index) {
+        const lightPalette = ["#1769aa", "#6741b6", "#0b6f87",
+                              "#08786f", "#7c3fa0", "#954b16"]
+        const darkPalette = ["#58a8ff", "#b69cff", "#52c7d8",
+                             "#56cf88", "#f6b94d", "#ff9b78"]
+        const palette = dark ? darkPalette : lightPalette
+        return palette[Math.max(0, index) % palette.length]
+    }
+
+    function applicationAccentText(index) {
+        return dark ? "#071624" : "#ffffff"
+    }
 
     function cycleMode() {
         mode = (mode + 1) % 3
