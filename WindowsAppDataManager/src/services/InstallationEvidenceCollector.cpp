@@ -3,6 +3,7 @@
 #include "../core/rules/RulePathResolver.h"
 #include "../platform/windows/appx/AppxPackageCatalog.h"
 #include "../platform/windows/filesystem/ExecutableMetadataReader.h"
+#include "../platform/windows/process/RunningProcessCatalog.h"
 #include "../platform/windows/registry/InstalledApplicationRegistry.h"
 #include "../platform/windows/security/AuthenticodeVerifier.h"
 
@@ -114,6 +115,52 @@ void collectAppxEvidence(InstallationEvidenceSnapshot &snapshot)
             package.displayName,
             package.installPath
         });
+    }
+}
+
+void collectRunningProcessEvidence(InstallationEvidenceSnapshot &snapshot)
+{
+    const platform::windows::RunningProcessQueryResult processes =
+            platform::windows::RunningProcessCatalog::query();
+    if (!processes.supported || !processes.available) {
+        snapshot.runningProcesses.availability =
+                InstallationEvidenceAvailability::Unavailable;
+    } else if (processes.complete) {
+        snapshot.runningProcesses.availability =
+                InstallationEvidenceAvailability::Complete;
+    } else {
+        snapshot.runningProcesses.availability =
+                InstallationEvidenceAvailability::Partial;
+    }
+
+    snapshot.runningProcesses.records.reserve(processes.processes.size());
+    for (const platform::windows::RunningProcessInfo &process :
+         processes.processes) {
+        if (process.imagePath.isEmpty())
+            continue;
+        snapshot.runningProcesses.records.append({
+            process.processId,
+            process.imageName,
+            process.imagePath
+        });
+    }
+
+    snapshot.runningProcesses.issues.reserve(processes.issues.size());
+    for (const platform::windows::RunningProcessReadIssue &issue :
+         processes.issues) {
+        QString context = QStringLiteral("进程枚举");
+        if (issue.processId != 0) {
+            context = issue.processName.isEmpty()
+                    ? QStringLiteral("PID %1").arg(issue.processId)
+                    : QStringLiteral("PID %1 / %2")
+                              .arg(issue.processId)
+                              .arg(issue.processName);
+        }
+        snapshot.runningProcesses.issues.append(
+                QStringLiteral("%1 / Win32 %2：%3")
+                        .arg(context,
+                             QString::number(issue.nativeError),
+                             issue.technicalDetail));
     }
 }
 
@@ -333,6 +380,7 @@ InstallationEvidenceSnapshot InstallationEvidenceCollector::collect(
     InstallationEvidenceSnapshot snapshot;
     collectRegistryEvidence(snapshot);
     collectAppxEvidence(snapshot);
+    collectRunningProcessEvidence(snapshot);
     collectExecutableEvidence(catalog, snapshot);
 
     logIssues(QStringLiteral("Registry"),
@@ -341,6 +389,9 @@ InstallationEvidenceSnapshot InstallationEvidenceCollector::collect(
     logIssues(QStringLiteral("AppX / MSIX"),
               snapshot.appx.availability,
               snapshot.appx.issues);
+    logIssues(QStringLiteral("Running process"),
+              snapshot.runningProcesses.availability,
+              snapshot.runningProcesses.issues);
     logIssues(QStringLiteral("Executable / Authenticode"),
               snapshot.executable.availability,
               snapshot.executable.issues);

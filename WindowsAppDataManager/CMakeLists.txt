@@ -51,6 +51,8 @@ set(BACKEND_SOURCES
     src/platform/windows/filesystem/ExecutableMetadataReader.h
     src/platform/windows/filesystem/ReparsePoint.cpp
     src/platform/windows/filesystem/ReparsePoint.h
+    src/platform/windows/process/RunningProcessCatalog.cpp
+    src/platform/windows/process/RunningProcessCatalog.h
     src/platform/windows/registry/InstalledApplicationRegistry.cpp
     src/platform/windows/registry/InstalledApplicationRegistry.h
     src/platform/windows/security/AuthenticodeVerifier.cpp

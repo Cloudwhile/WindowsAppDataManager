@@ -266,6 +266,11 @@ struct ExecutableMatch {
     bool conflict = false;
 };
 
+struct RunningProcessMatch {
+    EvidenceStatus status = EvidenceStatus::Unavailable;
+    QString detail;
+};
+
 bool hasMetadataIdentifiers(const RuleIdentifiers &identifiers)
 {
     return !identifiers.executableProductNames.isEmpty()
@@ -472,6 +477,47 @@ ExecutableMatch matchExecutableEvidence(
     return result;
 }
 
+RunningProcessMatch matchRunningProcessEvidence(
+        const QString &expectedPath,
+        const InstallationEvidenceSourceSnapshot<RunningProcessEvidenceRecord> &snapshot)
+{
+    const QString expectedKey = rules::normalizedPathKey(expectedPath);
+    if (expectedKey.isEmpty()) {
+        return {EvidenceStatus::Unavailable,
+                QStringLiteral("规则可执行路径当前不可解析，未匹配运行进程")};
+    }
+
+    int processCount = 0;
+    for (const RunningProcessEvidenceRecord &record : snapshot.records) {
+        const QString processKey = rules::normalizedPathKey(record.imagePath);
+        if (!processKey.isEmpty() && processKey == expectedKey)
+            ++processCount;
+    }
+    if (processCount > 0) {
+        return {
+            EvidenceStatus::Matched,
+            processCount == 1
+                    ? QStringLiteral("检测到进程正在从规则声明的可执行路径运行")
+                    : QStringLiteral("检测到 %1 个进程正在从规则声明的可执行路径运行")
+                              .arg(processCount)
+        };
+    }
+
+    switch (snapshot.availability) {
+    case InstallationEvidenceAvailability::Complete:
+        return {EvidenceStatus::NotFound,
+                QStringLiteral("当前未检测到匹配进程；进程未运行不代表应用未安装")};
+    case InstallationEvidenceAvailability::Partial:
+        return {EvidenceStatus::Incomplete,
+                QStringLiteral("运行进程仅部分可枚举，未观察到匹配进程，不能作否定判断")};
+    case InstallationEvidenceAvailability::Unavailable:
+        return {EvidenceStatus::Unavailable,
+                QStringLiteral("运行进程证据当前不可用，未作否定判断")};
+    }
+    return {EvidenceStatus::Unavailable,
+            QStringLiteral("运行进程证据状态未知")};
+}
+
 QString rootScopeName(const QString &root)
 {
     const QString name = QFileInfo(root).fileName().toCaseFolded();
@@ -550,6 +596,8 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
 
     const ExecutableMatch executableMatch = matchExecutableEvidence(
             rule, application.executablePath, evidence.executable);
+    const RunningProcessMatch runningProcessMatch = matchRunningProcessEvidence(
+            application.executablePath, evidence.runningProcesses);
     const InstallationMatch registryMatch = matchInstallationRecords(
             rule.identifiers.registryDisplayNames,
             rule.identifiers.registryPublishers,
@@ -627,6 +675,11 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
     });
     if (executableMatch.publisherEvidence)
         application.evidence.append(*executableMatch.publisherEvidence);
+    application.evidence.append({
+        EvidenceSource::RunningProcess,
+        runningProcessMatch.status,
+        runningProcessMatch.detail
+    });
 
     if (registryMatch.status != InstallationMatchStatus::NotConfigured) {
         application.evidence.append({

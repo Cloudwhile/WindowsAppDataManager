@@ -58,6 +58,12 @@ struct ExecutableEvidenceRecord {
     QString signerPublisher;
 };
 
+struct RunningProcessEvidenceRecord {
+    quint32 processId = 0;
+    QString imageName;
+    QString imagePath;
+};
+
 template <typename Record>
 struct InstallationEvidenceSourceSnapshot {
     InstallationEvidenceAvailability availability =
@@ -70,6 +76,7 @@ struct InstallationEvidenceSnapshot {
     InstallationEvidenceSourceSnapshot<RegistryInstallationRecord> registry;
     InstallationEvidenceSourceSnapshot<AppxInstallationRecord> appx;
     InstallationEvidenceSourceSnapshot<ExecutableEvidenceRecord> executable;
+    InstallationEvidenceSourceSnapshot<RunningProcessEvidenceRecord> runningProcesses;
 };
 
 } // namespace wam
