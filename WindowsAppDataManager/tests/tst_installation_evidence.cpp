@@ -96,6 +96,9 @@ private slots:
     void identityMatchingRejectsFuzzyValues();
     void appxMatchingUsesPackageIdentityOnly();
     void uncollectedExecutablePathRemainsUnknown();
+    void runningProcessRemainsCorroboratingEvidence();
+    void runningProcessCannotBypassExecutableConflict();
+    void partialRunningProcessSnapshotRemainsConservative();
 };
 
 void InstallationEvidenceTest::completePartialAndUnavailableRemainDistinct()
@@ -380,6 +383,111 @@ void InstallationEvidenceTest::uncollectedExecutablePathRemainsUnknown()
     QVERIFY(hasEvidence(target->application, wam::EvidenceSource::Executable,
                         wam::EvidenceStatus::Unavailable));
     QVERIFY(target->application.installState != wam::InstallState::PotentialOrphan);
+}
+
+void InstallationEvidenceTest::runningProcessRemainsCorroboratingEvidence()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    QVERIFY(QDir().mkpath(QDir(local).filePath(QStringLiteral("Sample/App Data"))));
+    const QString executable = QStringLiteral("C:/Apps/Sample/sample.exe");
+    const auto catalog = catalogFor(evidenceRule({}, executable));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        executable,
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Missing,
+        {}, {}, {}, {},
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+    evidence.runningProcesses.availability =
+            wam::InstallationEvidenceAvailability::Partial;
+    evidence.runningProcesses.records.append({
+        42, QStringLiteral("sample.exe"), QStringLiteral("c:\\apps\\sample\\sample.exe")
+    });
+
+    const auto targets = wam::core::AppResolver(catalog, evidence).discoverTargets({local});
+    const auto *target = sampleTarget(targets);
+    QVERIFY(target);
+    QCOMPARE(target->application.installState, wam::InstallState::Installed);
+    QCOMPARE(target->application.confidence, 88);
+    QVERIFY(hasEvidence(target->application, wam::EvidenceSource::RunningProcess,
+                        wam::EvidenceStatus::Matched));
+}
+
+void InstallationEvidenceTest::runningProcessCannotBypassExecutableConflict()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    QVERIFY(QDir().mkpath(QDir(local).filePath(QStringLiteral("Sample/App Data"))));
+    const QString executable = QStringLiteral("C:/Apps/Sample/sample.exe");
+    const QJsonObject identifiers {
+        {QStringLiteral("executableProductNames"),
+         QJsonArray {QStringLiteral("Sample Product")}}
+    };
+    const auto catalog = catalogFor(evidenceRule(identifiers, executable));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        executable,
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Available,
+        QStringLiteral("Different Product"), {}, {}, {},
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+    evidence.runningProcesses.availability =
+            wam::InstallationEvidenceAvailability::Complete;
+    evidence.runningProcesses.records.append({
+        42, QStringLiteral("sample.exe"), executable
+    });
+
+    const auto targets = wam::core::AppResolver(catalog, evidence).discoverTargets({local});
+    const auto *target = sampleTarget(targets);
+    QVERIFY(target);
+    QCOMPARE(target->application.installState, wam::InstallState::Unknown);
+    QCOMPARE(target->application.confidence, 49);
+    QVERIFY(hasEvidence(target->application, wam::EvidenceSource::Executable,
+                        wam::EvidenceStatus::Conflict));
+    QVERIFY(hasEvidence(target->application, wam::EvidenceSource::RunningProcess,
+                        wam::EvidenceStatus::Matched));
+}
+
+void InstallationEvidenceTest::partialRunningProcessSnapshotRemainsConservative()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    QVERIFY(QDir().mkpath(QDir(local).filePath(QStringLiteral("Sample/App Data"))));
+    const QString executable = QStringLiteral("C:/Apps/Sample/sample.exe");
+    const auto catalog = catalogFor(evidenceRule({}, executable));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        executable,
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Missing,
+        {}, {}, {}, {},
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+    evidence.runningProcesses.availability =
+            wam::InstallationEvidenceAvailability::Partial;
+
+    const auto targets = wam::core::AppResolver(catalog, evidence).discoverTargets({local});
+    const auto *target = sampleTarget(targets);
+    QVERIFY(target);
+    QCOMPARE(target->application.installState, wam::InstallState::Installed);
+    QCOMPARE(target->application.confidence, 88);
+    QVERIFY(hasEvidence(target->application, wam::EvidenceSource::RunningProcess,
+                        wam::EvidenceStatus::Incomplete));
 }
 
 QTEST_GUILESS_MAIN(InstallationEvidenceTest)

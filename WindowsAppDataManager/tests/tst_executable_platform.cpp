@@ -1,16 +1,19 @@
 #include "src/core/rules/RuleCatalog.h"
 #include "src/platform/windows/filesystem/ExecutableFileIdentity.h"
 #include "src/platform/windows/filesystem/ExecutableMetadataReader.h"
+#include "src/platform/windows/process/RunningProcessCatalog.h"
 #include "src/platform/windows/security/AuthenticodeVerifier.h"
 #include "src/services/InstallationEvidenceCollector.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QStringList>
 #include <QtTest>
 
 #include <algorithm>
@@ -54,6 +57,7 @@ class ExecutablePlatformTest final : public QObject {
 
 private slots:
     void collectorRejectsHardLinkedExecutableClaims();
+    void runningProcessCatalogFindsCurrentProcess();
     void metadataReaderDistinguishesMissingAndUnsignedFiles();
     void authenticodeStatusClassificationIsConservative();
     void metadataAndSignatureShareStableIdentity();
@@ -113,6 +117,43 @@ void ExecutablePlatformTest::collectorRejectsHardLinkedExecutableClaims()
             [](const QString &issue) {
         return issue.contains(QStringLiteral("同一物理文件"));
     }));
+#endif
+}
+
+void ExecutablePlatformTest::runningProcessCatalogFindsCurrentProcess()
+{
+#ifndef Q_OS_WIN
+    QSKIP("Windows 运行进程目录仅在 Windows 上可用");
+#else
+    const auto result =
+            wam::platform::windows::RunningProcessCatalog::query();
+    QVERIFY(result.supported);
+    QVERIFY(result.available);
+
+    const quint32 currentProcessId = static_cast<quint32>(
+            QCoreApplication::applicationPid());
+    const auto iterator = std::find_if(
+            result.processes.cbegin(), result.processes.cend(),
+            [currentProcessId](const auto &process) {
+        return process.processId == currentProcessId;
+    });
+    QStringList issueDetails;
+    for (const auto &issue : result.issues)
+        issueDetails.append(issue.technicalDetail);
+    QVERIFY2(iterator != result.processes.cend(),
+             qPrintable(issueDetails.join(QStringLiteral(" | "))));
+    QVERIFY(!iterator->imageName.isEmpty());
+    QVERIFY(!iterator->imagePath.isEmpty());
+
+    const auto normalizedPath = [](const QString &path) {
+        const QFileInfo info(path);
+        const QString canonical = info.canonicalFilePath();
+        return QDir::cleanPath(
+                       canonical.isEmpty() ? info.absoluteFilePath() : canonical)
+                .toCaseFolded();
+    };
+    QCOMPARE(normalizedPath(iterator->imagePath),
+             normalizedPath(QCoreApplication::applicationFilePath()));
 #endif
 }
 
