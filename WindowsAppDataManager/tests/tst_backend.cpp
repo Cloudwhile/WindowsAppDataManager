@@ -7,12 +7,15 @@
 #include "src/qmlmodels/ApplicationFilterModel.h"
 #include "src/qmlmodels/ApplicationListModel.h"
 #include "src/qmlmodels/ScanViewModel.h"
+#include "src/services/CleanupPlanBuilder.h"
+#include "src/services/ScanReportExporter.h"
 
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -131,6 +134,8 @@ private slots:
     void applicationListFindsStableIdsAndExposesAccentIndices();
     void applicationFilterCombinesSearchAndExactFilters();
     void applicationFilterSortsAndMapsSourceRows();
+    void scanReportExportsApplicationsAndReadIssues();
+    void cleanupPlanOnlyIncludesExplicitSafeRebuildableGroups();
     void viewModelPublishesBackgroundScan();
     void viewModelAppliesBuiltInRules();
     void resolverPublishesApplicationClassificationRules();
@@ -405,10 +410,12 @@ void BackendTest::builtInCatalogContainsMvpApplications()
 {
     const auto &catalog = wam::core::rules::RuleCatalog::builtIn();
     QVERIFY2(catalog.issues().isEmpty(), "内置规则必须全部通过加载校验");
-    QCOMPARE(catalog.applications().size(), 7);
+    QCOMPARE(catalog.applications().size(), 9);
     QVERIFY(catalog.findById(QStringLiteral("google-chrome")));
     QVERIFY(catalog.findById(QStringLiteral("chromium")));
+    QVERIFY(catalog.findById(QStringLiteral("microsoft-edge")));
     QVERIFY(catalog.findById(QStringLiteral("discord")));
+    QVERIFY(catalog.findById(QStringLiteral("obs-studio")));
     QVERIFY(catalog.findById(QStringLiteral("visual-studio-code")));
     QVERIFY(catalog.findById(QStringLiteral("jetbrains")));
     QVERIFY(catalog.findById(QStringLiteral("windows-temp")));
@@ -922,6 +929,136 @@ void BackendTest::applicationFilterSortsAndMapsSourceRows()
         QCOMPARE(applications.get(sourceIndex).value(QStringLiteral("appId")),
                  item.value(QStringLiteral("appId")));
     }
+}
+
+void BackendTest::scanReportExportsApplicationsAndReadIssues()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+
+    wam::ApplicationInfo sample = application(
+            QStringLiteral("sample"), QStringLiteral("示例应用"),
+            QStringLiteral("示例发布者"), QStringLiteral("工具"), 42,
+            wam::RiskLevel::Unknown, wam::InstallState::Unknown);
+    sample.location = QStringLiteral("C:/Users/Example/AppData/Local/Sample");
+    sample.fileCount = 3;
+    sample.summary = QStringLiteral("需要进一步确认。");
+    sample.dataGroups = {
+        {QStringLiteral("cache"), wam::DataCategory::Cache, 42, 3,
+         wam::RiskLevel::Safe, wam::RebuildableState::Yes,
+         QStringLiteral("缓存可重新生成。"), sample.location + QStringLiteral("/Cache"),
+         QStringLiteral("内置规则 / sample@1")}
+    };
+    sample.evidence = {
+        {wam::EvidenceSource::Registry, wam::EvidenceStatus::Matched,
+         QStringLiteral("Registry match")}
+    };
+
+    wam::ScanIssue issue;
+    issue.code = wam::ScanErrorCode::AccessDenied;
+    issue.message = QStringLiteral("无法读取该目录");
+    issue.technicalDetail = QStringLiteral("Permission denied");
+    issue.path = QStringLiteral("C:/Users/Example/AppData/Local/Private");
+
+    const QString outputPath = QDir(temporary.path()).filePath(QStringLiteral("report.csv"));
+    const QString error = wam::services::exportScanReport(
+            QUrl::fromLocalFile(outputPath), {sample}, {issue});
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    QFile csvReport(outputPath);
+    QVERIFY2(csvReport.open(QIODevice::ReadOnly), qPrintable(csvReport.errorString()));
+    const QString contents = QString::fromUtf8(csvReport.readAll());
+    QVERIFY(contents.contains(QStringLiteral("示例应用")));
+    QVERIFY(contents.contains(QStringLiteral("未完整读取")));
+    QVERIFY(contents.contains(QStringLiteral("访问被拒绝")));
+
+    const QString jsonPath = QDir(temporary.path()).filePath(QStringLiteral("report.json"));
+    const QString jsonError = wam::services::exportScanReport(
+            QUrl::fromLocalFile(jsonPath), {sample}, {issue});
+    QVERIFY2(jsonError.isEmpty(), qPrintable(jsonError));
+
+    QFile jsonReport(jsonPath);
+    QVERIFY2(jsonReport.open(QIODevice::ReadOnly), qPrintable(jsonReport.errorString()));
+    QJsonParseError parseError;
+    const QJsonDocument json = QJsonDocument::fromJson(jsonReport.readAll(), &parseError);
+    QCOMPARE(parseError.error, QJsonParseError::NoError);
+    QVERIFY(json.isObject());
+    const QJsonObject jsonReportObject = json.object();
+    QCOMPARE(jsonReportObject.value(QStringLiteral("schemaVersion")).toString(), QStringLiteral("1.0"));
+    QCOMPARE(jsonReportObject.value(QStringLiteral("reportType")).toString(),
+             QStringLiteral("windows-appdata-manager.scan"));
+    QCOMPARE(jsonReportObject.value(QStringLiteral("summary")).toObject()
+                     .value(QStringLiteral("applicationCount")).toInt(), 1);
+    const QJsonArray exportedApplications = jsonReportObject.value(QStringLiteral("applications")).toArray();
+    QCOMPARE(exportedApplications.size(), 1);
+    QCOMPARE(exportedApplications.at(0).toObject()
+                     .value(QStringLiteral("name")).toString(), QStringLiteral("示例应用"));
+    const QJsonObject exportedApplication = exportedApplications.at(0).toObject();
+    QCOMPARE(exportedApplication.value(QStringLiteral("risk")).toString(), QStringLiteral("unknown"));
+    QCOMPARE(exportedApplication.value(QStringLiteral("installState")).toString(),
+             QStringLiteral("unknown"));
+    const QJsonArray exportedGroups = exportedApplication.value(QStringLiteral("dataGroups")).toArray();
+    QCOMPARE(exportedGroups.size(), 1);
+    const QJsonObject exportedGroup = exportedGroups.at(0).toObject();
+    QCOMPARE(exportedGroup.value(QStringLiteral("category")).toString(), QStringLiteral("cache"));
+    QCOMPARE(exportedGroup.value(QStringLiteral("risk")).toString(), QStringLiteral("safe"));
+    QCOMPARE(exportedGroup.value(QStringLiteral("rebuildable")).toString(), QStringLiteral("yes"));
+    const QJsonArray exportedEvidenceRows = exportedApplication.value(QStringLiteral("evidence")).toArray();
+    QCOMPARE(exportedEvidenceRows.size(), 1);
+    const QJsonObject exportedEvidence = exportedEvidenceRows.at(0).toObject();
+    QCOMPARE(exportedEvidence.value(QStringLiteral("source")).toString(), QStringLiteral("registry"));
+    QCOMPARE(exportedEvidence.value(QStringLiteral("status")).toString(), QStringLiteral("matched"));
+    const QJsonArray exportedIssues = jsonReportObject.value(QStringLiteral("issues")).toArray();
+    QCOMPARE(exportedIssues.size(), 1);
+    QCOMPARE(exportedIssues.at(0).toObject()
+                     .value(QStringLiteral("codeText")).toString(), QStringLiteral("访问被拒绝"));
+}
+
+void BackendTest::cleanupPlanOnlyIncludesExplicitSafeRebuildableGroups()
+{
+    wam::ApplicationInfo identified = application(
+            QStringLiteral("identified"), QStringLiteral("已识别应用"),
+            QStringLiteral("示例发布者"), QStringLiteral("工具"), 125,
+            wam::RiskLevel::Safe, wam::InstallState::Installed);
+    identified.confidence = 92;
+    identified.dataGroups = {
+        {QStringLiteral("cache"), wam::DataCategory::Cache, 100, 4,
+         wam::RiskLevel::Safe, wam::RebuildableState::Yes,
+         QStringLiteral("缓存可重新生成。"), QStringLiteral("C:/Cache"),
+         QStringLiteral("内置规则 / sample@1")},
+        {QStringLiteral("log"), wam::DataCategory::Log, 25, 2,
+         wam::RiskLevel::Low, wam::RebuildableState::Yes,
+         QStringLiteral("日志可重新生成。"), QStringLiteral("C:/Logs"),
+         QStringLiteral("内置规则 / sample@1")},
+        {QStringLiteral("credential"), wam::DataCategory::Credential, 50, 1,
+         wam::RiskLevel::Protected, wam::RebuildableState::No,
+         QStringLiteral("不能纳入计划。"), QStringLiteral("C:/Credential"),
+         QStringLiteral("内置规则 / sample@1")},
+        {QStringLiteral("unproven"), wam::DataCategory::Cache, 10, 1,
+         wam::RiskLevel::Safe, wam::RebuildableState::Yes,
+         QStringLiteral("缺少规则来源。"), QStringLiteral("C:/Unproven"), {}}
+    };
+
+    wam::ApplicationInfo uncertain = application(
+            QStringLiteral("uncertain"), QStringLiteral("未确认应用"),
+            {}, QStringLiteral("工具"), 80,
+            wam::RiskLevel::Unknown, wam::InstallState::Unknown);
+    uncertain.confidence = 72;
+    uncertain.dataGroups = {
+        {QStringLiteral("cache"), wam::DataCategory::Cache, 80, 1,
+         wam::RiskLevel::Safe, wam::RebuildableState::Yes,
+         QStringLiteral("不应纳入计划。"), QStringLiteral("C:/Unknown"),
+         QStringLiteral("内置规则 / sample@1")}
+    };
+
+    const wam::services::CleanupPlan plan =
+            wam::services::buildCleanupPlan({identified, uncertain});
+    QCOMPARE(plan.items.size(), 2);
+    QCOMPARE(plan.totalSize, 125ULL);
+    QCOMPARE(plan.items.at(0).id, QStringLiteral("identified:cache"));
+    QCOMPARE(plan.items.at(0).size, 100ULL);
+    QCOMPARE(plan.items.at(1).id, QStringLiteral("identified:log"));
+    QCOMPARE(plan.items.at(1).size, 25ULL);
 }
 
 void BackendTest::viewModelPublishesBackgroundScan()

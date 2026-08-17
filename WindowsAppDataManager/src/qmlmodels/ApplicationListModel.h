@@ -74,6 +74,7 @@ public:
     [[nodiscard]] int recognizedCount() const;
     [[nodiscard]] int potentialOrphanCount() const;
     [[nodiscard]] double maximumSizeValue() const;
+    [[nodiscard]] QVector<ApplicationInfo> snapshot() const;
 
     Q_INVOKABLE [[nodiscard]] QVariantMap get(int index) const;
     Q_INVOKABLE [[nodiscard]] int indexOfId(const QString &applicationId) const;

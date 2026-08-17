@@ -13,8 +13,13 @@ Flickable {
     property bool scanFailed: false
     property bool partialResult: false
     property int issueCount: 0
+    property string exportMessage: ""
+    property bool exportSucceeded: false
 
     signal scanRequested()
+    signal issuesRequested()
+    signal exportRequested()
+    signal cleanupPlanRequested()
     signal applicationSelected(int index)
     signal applicationsRequested()
 
@@ -68,6 +73,20 @@ Flickable {
                 prominent: true
                 onClicked: page.scanRequested()
             }
+
+            IconButton {
+                visible: page.hasResults && !page.scanning
+                iconSource: Qt.resolvedUrl("../resources/Icons/TablerFileFilled.svg")
+                tooltip: "导出扫描报告"
+                onClicked: page.exportRequested()
+            }
+
+            IconButton {
+                visible: page.hasResults && !page.scanning && !page.partialResult
+                iconSource: Qt.resolvedUrl("../resources/Icons/IcBaselineCleaningServices.svg")
+                tooltip: "生成清理计划"
+                onClicked: page.cleanupPlanRequested()
+            }
         }
 
         ScanProgressStrip {
@@ -81,7 +100,8 @@ Flickable {
         InlineNotice {
             width: parent.width
             height: implicitHeight
-            visible: page.hasResults && (page.scanFailed || page.partialResult)
+            visible: page.hasResults && !page.scanning
+                     && (page.scanFailed || page.partialResult)
             iconSource: Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")
             message: page.scanFailed
                      ? "本次扫描未完成，当前仍显示上一次完整结果。"
@@ -91,7 +111,22 @@ Flickable {
             actionIconSource: Qt.resolvedUrl("../resources/Icons/TablerRefresh.svg")
             actionTooltip: "重新扫描"
             actionVisible: !page.scanning
+            detailActionText: "查看明细"
+            detailActionVisible: page.partialResult && page.issueCount > 0
             onActionRequested: page.scanRequested()
+            onDetailActionRequested: page.issuesRequested()
+        }
+
+        InlineNotice {
+            width: parent.width
+            height: implicitHeight
+            visible: page.exportMessage.length > 0
+            iconSource: Qt.resolvedUrl(page.exportSucceeded
+                                       ? "../resources/Icons/TablerCheck.svg"
+                                       : "../resources/Icons/TablerExclamationMark.svg")
+            message: page.exportMessage
+            accent: page.exportSucceeded ? Theme.greenText : Theme.redText
+            fill: page.exportSucceeded ? Theme.greenSoft : Theme.redSoft
         }
 
         EmptyState {

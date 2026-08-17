@@ -22,35 +22,57 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        TextField {
-            id: pathText
-
+        Row {
             width: parent.width
             height: 25
-            text: field.value
-            readOnly: true
-            selectByMouse: true
-            activeFocusOnTab: true
-            color: Theme.textSecondary
-            selectionColor: Theme.accent
-            selectedTextColor: Theme.onAccent
-            font.pixelSize: 11
-            leftPadding: 2
-            rightPadding: 2
-            topPadding: 0
-            bottomPadding: 0
-            clip: true
+            spacing: 4
 
-            background: Rectangle {
-                color: "transparent"
-                border.width: pathText.activeFocus ? 1 : 0
-                border.color: Theme.accent
-                radius: Theme.radiusSmall
+            TextField {
+                id: pathText
+
+                width: parent.width - copyButton.width - 4
+                height: 25
+                text: field.value
+                readOnly: true
+                selectByMouse: true
+                activeFocusOnTab: true
+                color: Theme.textSecondary
+                selectionColor: Theme.accent
+                selectedTextColor: Theme.onAccent
+                font.pixelSize: 11
+                leftPadding: 2
+                rightPadding: 2
+                topPadding: 0
+                bottomPadding: 0
+                clip: true
+
+                background: Rectangle {
+                    color: "transparent"
+                    border.width: pathText.activeFocus ? 1 : 0
+                    border.color: Theme.accent
+                    radius: Theme.radiusSmall
+                }
+
+                Accessible.role: Accessible.EditableText
+                Accessible.name: field.label
+                Accessible.description: field.value
             }
 
-            Accessible.role: Accessible.EditableText
-            Accessible.name: field.label
-            Accessible.description: field.value
+            IconButton {
+                id: copyButton
+
+                width: 32
+                height: 25
+                iconSize: 15
+                iconSource: Qt.resolvedUrl("../resources/Icons/TablerFiles.svg")
+                tooltip: "复制路径"
+                symbolColor: Theme.textMuted
+                onClicked: {
+                    pathText.selectAll()
+                    pathText.copy()
+                    pathText.deselect()
+                }
+            }
         }
     }
 

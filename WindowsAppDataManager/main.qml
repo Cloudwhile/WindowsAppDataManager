@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import windowsappdatamanager
 
@@ -49,6 +50,8 @@ ApplicationWindow {
     readonly property int sidebarWidth: width < 1120 ? 184 : 208
     property real detailPanelExtent: showDetails ? detailPanelWidth : 0
     property bool detailPaneOpen: false
+    property string exportMessage: ""
+    property bool exportSucceeded: false
 
     onCurrentPageChanged: pageFade.restart()
     readonly property color scanStatusColor: scanning ? Theme.accentText
@@ -67,6 +70,10 @@ ApplicationWindow {
                                              : Qt.resolvedUrl("resources/Icons/TablerPointFilled.svg")
 
     function toggleScan() {
+        if (!scanController.running) {
+            exportMessage = ""
+            exportSucceeded = false
+        }
         scanController.toggleScan()
     }
 
@@ -187,7 +194,15 @@ ApplicationWindow {
                 scanFailed: window.scanController.errorMessage.length > 0
                 partialResult: window.scanController.partialResult
                 issueCount: window.scanController.issueCount
+                exportMessage: window.exportMessage
+                exportSucceeded: window.exportSucceeded
                 onScanRequested: window.toggleScan()
+                onIssuesRequested: scanIssuesDialog.open()
+                onExportRequested: exportDialog.open()
+                onCleanupPlanRequested: {
+                    window.scanController.generateCleanupPlan()
+                    cleanupPlanDialog.open()
+                }
                 onApplicationSelected: index => window.openApplication(index)
                 onApplicationsRequested: window.currentPage = window.applicationsPageIndex
             }
@@ -228,6 +243,42 @@ ApplicationWindow {
         NumberAnimation {
             duration: Motion.allowPosition ? Motion.normal : 0
             easing.type: Easing.OutCubic
+        }
+    }
+
+    ScanIssuesDialog {
+        id: scanIssuesDialog
+
+        parent: Overlay.overlay
+        issues: window.scanController.issues
+        scanning: window.scanning
+        onRescanRequested: {
+            close()
+            window.toggleScan()
+        }
+    }
+
+    CleanupPlanDialog {
+        id: cleanupPlanDialog
+
+        parent: Overlay.overlay
+        items: window.scanController.cleanupPlan
+        totalText: window.scanController.cleanupPlanTotalText
+    }
+
+    FileDialog {
+        id: exportDialog
+
+        title: "导出 AppData 扫描报告"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["CSV 报告 (*.csv)", "JSON 报告 (*.json)"]
+        defaultSuffix: selectedNameFilter.indexOf("JSON") >= 0 ? "json" : "csv"
+        onAccepted: {
+            const error = window.scanController.exportReport(selectedFile)
+            window.exportSucceeded = error.length === 0
+            window.exportMessage = window.exportSucceeded
+                    ? "扫描报告已导出。"
+                    : "导出失败：" + error
         }
     }
 

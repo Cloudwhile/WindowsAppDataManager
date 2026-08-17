@@ -150,7 +150,9 @@ const RuleCatalog &RuleCatalog::builtIn()
         static const QStringList resourcePaths {
             QStringLiteral(":/windowsappdatamanager/rules/builtin/chrome.json"),
             QStringLiteral(":/windowsappdatamanager/rules/builtin/chromium.json"),
+            QStringLiteral(":/windowsappdatamanager/rules/builtin/microsoft-edge.json"),
             QStringLiteral(":/windowsappdatamanager/rules/builtin/discord.json"),
+            QStringLiteral(":/windowsappdatamanager/rules/builtin/obs-studio.json"),
             QStringLiteral(":/windowsappdatamanager/rules/builtin/vscode.json"),
             QStringLiteral(":/windowsappdatamanager/rules/builtin/jetbrains.json"),
             QStringLiteral(":/windowsappdatamanager/rules/builtin/windows-temp.json"),

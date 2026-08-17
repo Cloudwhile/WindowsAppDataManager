@@ -13,6 +13,7 @@ find_package(Qt${QT_VERSION_MAJOR}
         Qml
         Quick
         QuickControls2
+        QuickDialogs2
     REQUIRED
 )
 qt_standard_project_setup()
@@ -49,6 +50,10 @@ set(BACKEND_SOURCES
     src/platform/windows/registry/InstalledApplicationRegistry.h
     src/services/ScanService.cpp
     src/services/ScanService.h
+    src/services/CleanupPlanBuilder.cpp
+    src/services/CleanupPlanBuilder.h
+    src/services/ScanReportExporter.cpp
+    src/services/ScanReportExporter.h
     src/services/SettingsService.cpp
     src/services/SettingsService.h
 )
@@ -68,7 +73,9 @@ if(QT_VERSION_MAJOR EQUAL 6)
             rules/schema.json
             rules/builtin/chrome.json
             rules/builtin/chromium.json
+            rules/builtin/microsoft-edge.json
             rules/builtin/discord.json
+            rules/builtin/obs-studio.json
             rules/builtin/vscode.json
             rules/builtin/jetbrains.json
             rules/builtin/windows-temp.json
@@ -111,6 +118,8 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             components/EmptyState.qml
             components/InlineNotice.qml
             components/ScanProgressStrip.qml
+            components/ScanIssuesDialog.qml
+            components/CleanupPlanDialog.qml
             components/OverviewStats.qml
             components/DispositionSummary.qml
             components/OverviewApplicationList.qml
@@ -192,6 +201,7 @@ target_link_libraries(${PROJECT_NAME}
         Qt::Qml
         Qt::Quick
         Qt::QuickControls2
+        Qt::QuickDialogs2
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels
@@ -228,9 +238,7 @@ endif()
 
 if(WIN32 AND QT_VERSION_MAJOR EQUAL 6 AND TARGET Qt6::windeployqt)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E env
-            "PATH=$<TARGET_FILE_DIR:Qt6::windeployqt>;$ENV{PATH}"
-            $<TARGET_FILE:Qt6::windeployqt>
+        COMMAND $<TARGET_FILE:Qt6::windeployqt>
             $<IF:$<CONFIG:Debug>,--debug,--release>
             --qmldir "${CMAKE_CURRENT_SOURCE_DIR}"
             --no-translations

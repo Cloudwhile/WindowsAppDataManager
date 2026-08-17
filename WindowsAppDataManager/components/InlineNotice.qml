@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -11,8 +12,11 @@ Rectangle {
     property url actionIconSource
     property string actionTooltip: ""
     property bool actionVisible: false
+    property string detailActionText: ""
+    property bool detailActionVisible: false
 
     signal actionRequested()
+    signal detailActionRequested()
 
     implicitHeight: 44
     radius: Theme.radiusSmall
@@ -38,6 +42,33 @@ Rectangle {
             font.pixelSize: 11
             font.weight: Font.Medium
             elide: Text.ElideMiddle
+        }
+
+        Button {
+            id: detailAction
+
+            visible: notice.detailActionVisible
+            text: notice.detailActionText
+            hoverEnabled: true
+            padding: 0
+            font.pixelSize: 11
+            font.weight: Font.DemiBold
+
+            contentItem: Text {
+                text: detailAction.text
+                color: notice.accent
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            background: Rectangle {
+                radius: Theme.radiusSmall
+                color: detailAction.down ? Theme.surfaceSelected
+                     : detailAction.hovered ? Theme.surfaceHover : "transparent"
+            }
+
+            onClicked: notice.detailActionRequested()
         }
 
         IconButton {

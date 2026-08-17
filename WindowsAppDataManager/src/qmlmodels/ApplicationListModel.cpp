@@ -281,6 +281,11 @@ double ApplicationListModel::maximumSizeValue() const
     return m_applications.isEmpty() ? 1.0 : static_cast<double>(m_applications.constFirst().totalSize);
 }
 
+QVector<ApplicationInfo> ApplicationListModel::snapshot() const
+{
+    return m_applications;
+}
+
 QVariantMap ApplicationListModel::get(int index) const
 {
     if (index < 0 || index >= m_applications.size())

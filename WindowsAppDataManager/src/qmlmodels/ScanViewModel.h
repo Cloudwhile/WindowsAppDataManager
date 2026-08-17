@@ -5,6 +5,8 @@
 
 #include <QObject>
 #include <QtQml/qqmlregistration.h>
+#include <QUrl>
+#include <QVariantList>
 
 namespace wam::qmlmodels {
 
@@ -22,6 +24,9 @@ class ScanViewModel : public QObject {
     Q_PROPERTY(QString technicalDetail READ technicalDetail NOTIFY errorChanged)
     Q_PROPERTY(int issueCount READ issueCount NOTIFY issueCountChanged)
     Q_PROPERTY(bool partialResult READ partialResult NOTIFY issueCountChanged)
+    Q_PROPERTY(QVariantList issues READ issues NOTIFY issuesChanged)
+    Q_PROPERTY(QVariantList cleanupPlan READ cleanupPlan NOTIFY cleanupPlanChanged)
+    Q_PROPERTY(QString cleanupPlanTotalText READ cleanupPlanTotalText NOTIFY cleanupPlanChanged)
 
 public:
     explicit ScanViewModel(ApplicationListModel *applicationModel, QObject *parent = nullptr);
@@ -36,10 +41,15 @@ public:
     [[nodiscard]] QString technicalDetail() const;
     [[nodiscard]] int issueCount() const;
     [[nodiscard]] bool partialResult() const;
+    [[nodiscard]] QVariantList issues() const;
+    [[nodiscard]] QVariantList cleanupPlan() const;
+    [[nodiscard]] QString cleanupPlanTotalText() const;
 
     Q_INVOKABLE void toggleScan();
     Q_INVOKABLE void startScan();
     Q_INVOKABLE void cancelScan();
+    Q_INVOKABLE QString exportReport(const QUrl &destination) const;
+    Q_INVOKABLE void generateCleanupPlan();
 
 signals:
     void runningChanged();
@@ -50,12 +60,15 @@ signals:
     void lastScanTextChanged();
     void errorChanged();
     void issueCountChanged();
+    void issuesChanged();
+    void cleanupPlanChanged();
 
 private:
     void setRunning(bool running);
     void setProgress(int progress);
     void setCurrentPath(QString path);
     void setStatusText(QString status);
+    void clearCleanupPlan();
     void clearError();
 
     ApplicationListModel *m_applicationModel = nullptr;
@@ -65,6 +78,9 @@ private:
     QString m_lastScanText = QStringLiteral("尚未扫描");
     QString m_errorMessage;
     QString m_technicalDetail;
+    QVector<ScanIssue> m_issues;
+    QVariantList m_cleanupPlan;
+    quint64 m_cleanupPlanTotalSize = 0;
     bool m_running = false;
     int m_progress = 0;
     int m_issueCount = 0;

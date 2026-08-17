@@ -6,6 +6,7 @@ Rectangle {
 
     required property var rowData
     property bool expanded: false
+    readonly property int unknownRiskLevel: 5
 
     function toggleExpanded() {
         expanded = !expanded
@@ -150,6 +151,26 @@ Rectangle {
                     color: Theme.textMuted
                     font.pixelSize: 10
                     elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: unknownExplanation.implicitHeight + 14
+                    visible: categoryRow.rowData.riskLevel === categoryRow.unknownRiskLevel
+                    radius: Theme.radiusSmall
+                    color: Theme.neutralSoft
+
+                    Text {
+                        id: unknownExplanation
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 7
+                        text: "为什么暂时不能判断：当前只获得目录名称或路径特征，缺少足够的应用归属证据。该项已被读取，但不代表可以安全处理。"
+                        color: Theme.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                    }
                 }
             }
 
