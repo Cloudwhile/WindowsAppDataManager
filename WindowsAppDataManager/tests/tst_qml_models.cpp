@@ -45,6 +45,7 @@ class QmlModelsTest final : public QObject {
 
 private slots:
     void applicationListFindsStableIdsAndExposesAccentIndices();
+    void applicationListExposesIndependentOrphanAssessment();
     void applicationFilterCombinesSearchAndExactFilters();
     void applicationFilterSortsAndMapsSourceRows();
     void viewModelPublishesBackgroundScan();
@@ -107,6 +108,118 @@ void QmlModelsTest::applicationListFindsStableIdsAndExposesAccentIndices()
     QCOMPARE(applications.indexOfId(QStringLiteral("alpha")), 0);
     QCOMPARE(applications.indexOfId(QStringLiteral("gamma")), 1);
     QCOMPARE(applications.indexOfId(QStringLiteral("beta")), 2);
+}
+
+void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
+{
+    using wam::InstallState;
+    using wam::RiskLevel;
+
+    wam::ApplicationInfo candidate = application(
+            QStringLiteral("candidate"), QStringLiteral("Candidate Data"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 120,
+            RiskLevel::Caution, InstallState::PotentialOrphan);
+    candidate.confidence = 91;
+    candidate.summary = QStringLiteral("应用归属证据摘要");
+    candidate.orphanAssessment.state = InstallState::PotentialOrphan;
+    candidate.orphanAssessment.confidence = 86;
+    candidate.orphanAssessment.summary = QStringLiteral("潜在残留评估摘要");
+    candidate.orphanAssessment.evaluated = true;
+
+    wam::ApplicationInfo blocked = application(
+            QStringLiteral("blocked"), QStringLiteral("Blocked Data"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 80,
+            RiskLevel::Unknown, InstallState::Unknown);
+    blocked.confidence = 74;
+    blocked.summary = QStringLiteral("目录归属仍需确认");
+    blocked.orphanAssessment.state = InstallState::Unknown;
+    blocked.orphanAssessment.confidence = 0;
+    blocked.orphanAssessment.summary = QStringLiteral("孤儿评估被保守阻断");
+    blocked.orphanAssessment.blockingReasons = {
+        QStringLiteral("运行进程证据不完整"),
+        QStringLiteral("扫描期间存在无法读取的位置")
+    };
+    blocked.orphanAssessment.evaluated = true;
+
+    wam::ApplicationInfo installed = application(
+            QStringLiteral("installed"), QStringLiteral("Installed App"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 40,
+            RiskLevel::Low, InstallState::Installed);
+    installed.confidence = 97;
+    installed.orphanAssessment.state = InstallState::Installed;
+    installed.orphanAssessment.summary = QStringLiteral("存在可信安装证据");
+    installed.orphanAssessment.evaluated = true;
+
+    wam::qmlmodels::ApplicationListModel applications;
+    applications.setApplications({candidate, blocked, installed});
+
+    const QHash<int, QByteArray> roles = applications.roleNames();
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::OrphanConfidenceRole),
+             QByteArray("orphanConfidence"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::OrphanSummaryRole),
+             QByteArray("orphanSummary"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::OrphanBlockingReasonsRole),
+             QByteArray("orphanBlockingReasons"));
+
+    const int candidateIndex = applications.indexOfId(QStringLiteral("candidate"));
+    const int blockedIndex = applications.indexOfId(QStringLiteral("blocked"));
+    QVERIFY(candidateIndex >= 0);
+    QVERIFY(blockedIndex >= 0);
+
+    const QModelIndex candidateModelIndex = applications.index(candidateIndex, 0);
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::ConfidenceRole).toInt(),
+             91);
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::OrphanConfidenceRole).toInt(),
+             86);
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::SummaryRole).toString(),
+             QStringLiteral("应用归属证据摘要"));
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::OrphanSummaryRole).toString(),
+             QStringLiteral("潜在残留评估摘要"));
+
+    const QVariantMap candidateMap = applications.get(candidateIndex);
+    QCOMPARE(candidateMap.value(QStringLiteral("confidence")).toInt(), 91);
+    QCOMPARE(candidateMap.value(QStringLiteral("orphanConfidence")).toInt(), 86);
+    QCOMPARE(candidateMap.value(QStringLiteral("summary")).toString(),
+             QStringLiteral("应用归属证据摘要"));
+    QCOMPARE(candidateMap.value(QStringLiteral("orphanSummary")).toString(),
+             QStringLiteral("潜在残留评估摘要"));
+
+    const QStringList blockingReasons {
+        QStringLiteral("运行进程证据不完整"),
+        QStringLiteral("扫描期间存在无法读取的位置")
+    };
+    const QModelIndex blockedModelIndex = applications.index(blockedIndex, 0);
+    QCOMPARE(applications.data(
+                     blockedModelIndex,
+                     wam::qmlmodels::ApplicationListModel::OrphanBlockingReasonsRole)
+                     .toStringList(),
+             blockingReasons);
+    QCOMPARE(applications.get(blockedIndex)
+                     .value(QStringLiteral("orphanBlockingReasons"))
+                     .toStringList(),
+             blockingReasons);
+
+    QCOMPARE(applications.potentialOrphanCount(), 1);
+    wam::qmlmodels::ApplicationFilterModel filter(&applications);
+    filter.setInstallStateFilter(static_cast<int>(InstallState::PotentialOrphan));
+    QCOMPARE(filter.count(), 1);
+    const QVariantMap filteredCandidate = filter.get(0);
+    QCOMPARE(filteredCandidate.value(QStringLiteral("appId")).toString(),
+             QStringLiteral("candidate"));
+    QCOMPARE(filteredCandidate.value(QStringLiteral("orphanConfidence")).toInt(), 86);
+    QCOMPARE(filteredCandidate.value(QStringLiteral("orphanSummary")).toString(),
+             QStringLiteral("潜在残留评估摘要"));
 }
 
 void QmlModelsTest::applicationFilterCombinesSearchAndExactFilters()
