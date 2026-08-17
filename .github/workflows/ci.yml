@@ -128,6 +128,7 @@ jobs:
             "wam_backend_tests",
             "wam_installation_evidence_tests",
             "wam_executable_evidence_tests",
+            "wam_executable_platform_tests",
             "wam_qml_models_tests"
           )
           Get-Process -Name $testProcesses -ErrorAction SilentlyContinue |
@@ -143,6 +144,25 @@ jobs:
               )
             } |
             Stop-Process -Force -ErrorAction SilentlyContinue
+
+          $testingRoot = [System.IO.Path]::GetFullPath(
+            (Join-Path $buildRoot "Testing")
+          ).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+          $ctestTemporary = [System.IO.Path]::GetFullPath(
+            (Join-Path $testingRoot "Temporary")
+          ).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+          if ([System.IO.Path]::GetDirectoryName($ctestTemporary) -ne
+              $testingRoot) {
+            throw "拒绝清理预期 Testing 目录外的 CTest 临时文件。"
+          }
+          if (Test-Path -LiteralPath $ctestTemporary -PathType Container) {
+            $ctestItem = Get-Item -LiteralPath $ctestTemporary -Force
+            if (($ctestItem.Attributes -band
+                  [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw "拒绝清理重解析点 CTest 临时目录。"
+            }
+            Remove-Item -LiteralPath $ctestTemporary -Recurse -Force
+          }
 
           if ([string]::IsNullOrWhiteSpace($env:WAM_TEST_TEMP_ROOT)) {
             Write-Host "未创建专用测试临时目录，无需清理。"
