@@ -129,6 +129,7 @@ jobs:
             "wam_installation_evidence_tests",
             "wam_executable_evidence_tests",
             "wam_executable_platform_tests",
+            "wam_orphan_detection_tests",
             "wam_qml_models_tests"
           )
           Get-Process -Name $testProcesses -ErrorAction SilentlyContinue |
