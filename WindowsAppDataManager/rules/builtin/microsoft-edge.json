@@ -1,0 +1,75 @@
+{
+  "$schema": "../schema.json",
+  "id": "microsoft-edge",
+  "version": "1",
+  "name": "Microsoft Edge",
+  "publisher": "Microsoft Corporation",
+  "applicationCategory": "浏览器",
+  "executablePath": "%ProgramFiles(x86)%/Microsoft/Edge/Application/msedge.exe",
+  "installPath": "%ProgramFiles(x86)%/Microsoft/Edge/Application",
+  "identifiers": {
+    "registryDisplayNames": ["Microsoft Edge"],
+    "registryPublishers": ["Microsoft Corporation"]
+  },
+  "locations": [
+    { "scope": "local", "path": "Microsoft/Edge/User Data" }
+  ],
+  "entries": [
+    {
+      "id": "default-cache",
+      "path": "Default/Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "网页资源会在后续浏览时按需重新下载，首次访问可能稍慢。"
+    },
+    {
+      "id": "default-code-cache",
+      "path": "Default/Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本编译缓存会在后续浏览过程中重新生成。"
+    },
+    {
+      "id": "default-gpu-cache",
+      "path": "Default/GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次渲染可能稍慢。"
+    },
+    {
+      "id": "shader-cache",
+      "path": "ShaderCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "着色器缓存会在需要时重新生成。"
+    },
+    {
+      "id": "crash-reports",
+      "path": "Crashpad/reports",
+      "category": "crash-dump",
+      "risk": "low",
+      "rebuildable": false,
+      "impact": "旧崩溃报告会丢失，不影响浏览器正常启动。"
+    },
+    {
+      "id": "default-session",
+      "path": "Default/Session Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能导致退出登录或丢失未同步的网页状态。"
+    },
+    {
+      "id": "default-credentials",
+      "path": "Default/Login Data",
+      "category": "credential",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含登录凭据相关数据，默认禁止处理。"
+    }
+  ]
+}
