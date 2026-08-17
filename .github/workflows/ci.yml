@@ -126,6 +126,7 @@ jobs:
           ).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
           $testProcesses = @(
             "wam_backend_tests",
+            "wam_cleanup_tests",
             "wam_installation_evidence_tests",
             "wam_executable_evidence_tests",
             "wam_executable_platform_tests",
