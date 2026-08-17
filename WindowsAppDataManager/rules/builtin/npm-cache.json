@@ -11,8 +11,8 @@
     "registryDisplayNames": ["Node.js"]
   },
   "locations": [
-    { "scope": "local", "path": "npm-cache" },
-    { "scope": "roaming", "path": "npm-cache" }
+    { "scope": "local", "path": "npm-cache", "ownership": "shared" },
+    { "scope": "roaming", "path": "npm-cache", "ownership": "shared" }
   ],
   "entries": [
     {

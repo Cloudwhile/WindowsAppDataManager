@@ -19,7 +19,7 @@
     "authenticodePublishers": ["Microsoft Corporation"]
   },
   "locations": [
-    { "scope": "roaming", "path": "Code" }
+    { "scope": "roaming", "path": "Code", "ownership": "exclusive" }
   ],
   "entries": [
     {

@@ -14,8 +14,8 @@
     "executableOriginalFilenames": ["Update.exe"]
   },
   "locations": [
-    { "scope": "roaming", "path": "discord" },
-    { "scope": "local", "path": "Discord" }
+    { "scope": "roaming", "path": "discord", "ownership": "exclusive" },
+    { "scope": "local", "path": "Discord", "ownership": "exclusive" }
   ],
   "entries": [
     {

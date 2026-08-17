@@ -16,7 +16,7 @@
     "authenticodePublishers": ["Google LLC"]
   },
   "locations": [
-    { "scope": "local", "path": "Google/Chrome/User Data" }
+    { "scope": "local", "path": "Google/Chrome/User Data", "ownership": "exclusive" }
   ],
   "entries": [
     {

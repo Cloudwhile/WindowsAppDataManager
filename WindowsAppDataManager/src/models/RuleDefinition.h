@@ -14,6 +14,11 @@ enum class RuleScope {
     LocalLow
 };
 
+enum class RuleLocationOwnership {
+    Shared,
+    Exclusive
+};
+
 enum class RuleIssueCode {
     JsonParse,
     InvalidRoot,
@@ -29,6 +34,7 @@ enum class RuleIssueCode {
 struct RuleLocation {
     RuleScope scope = RuleScope::Local;
     QString relativePath;
+    RuleLocationOwnership ownership = RuleLocationOwnership::Shared;
 };
 
 struct RuleEntry {

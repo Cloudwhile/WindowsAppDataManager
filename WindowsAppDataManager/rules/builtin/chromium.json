@@ -14,7 +14,7 @@
     "executableOriginalFilenames": ["chrome.exe"]
   },
   "locations": [
-    { "scope": "local", "path": "Chromium" }
+    { "scope": "local", "path": "Chromium", "ownership": "exclusive" }
   ],
   "entries": [
     {

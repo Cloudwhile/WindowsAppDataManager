@@ -14,8 +14,8 @@
     "authenticodePublishers": ["JetBrains s.r.o."]
   },
   "locations": [
-    { "scope": "local", "path": "JetBrains" },
-    { "scope": "roaming", "path": "JetBrains" }
+    { "scope": "local", "path": "JetBrains", "ownership": "shared" },
+    { "scope": "roaming", "path": "JetBrains", "ownership": "shared" }
   ],
   "entries": [
     {

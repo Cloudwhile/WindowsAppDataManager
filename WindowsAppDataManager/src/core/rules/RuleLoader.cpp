@@ -118,6 +118,16 @@ std::optional<RuleScope> parseScope(const QString &value)
     return std::nullopt;
 }
 
+std::optional<RuleLocationOwnership> parseLocationOwnership(const QString &value)
+{
+    const QString normalized = value.toCaseFolded();
+    if (normalized == QStringLiteral("shared"))
+        return RuleLocationOwnership::Shared;
+    if (normalized == QStringLiteral("exclusive"))
+        return RuleLocationOwnership::Exclusive;
+    return std::nullopt;
+}
+
 std::optional<DataCategory> parseCategory(const QString &value)
 {
     static const QHash<QString, DataCategory> categories {
@@ -320,7 +330,8 @@ void parseLocations(const QJsonObject &root,
 
         const QJsonObject locationObject = array.at(index).toObject();
         rejectUnknownFields(locationObject,
-                            {QStringLiteral("scope"), QStringLiteral("path")},
+                            {QStringLiteral("scope"), QStringLiteral("path"),
+                             QStringLiteral("ownership")},
                             prefix, source, issues);
         const auto scopeText = requiredString(locationObject, QStringLiteral("scope"),
                                                prefix + QStringLiteral(".scope"),
@@ -330,6 +341,23 @@ void parseLocations(const QJsonObject &root,
                                               source, issues);
         if (!scopeText || !pathText)
             continue;
+
+        RuleLocationOwnership ownership = RuleLocationOwnership::Shared;
+        if (locationObject.contains(QStringLiteral("ownership"))) {
+            const auto ownershipText = requiredString(
+                    locationObject, QStringLiteral("ownership"),
+                    prefix + QStringLiteral(".ownership"), source, issues);
+            if (!ownershipText)
+                continue;
+            const auto parsedOwnership = parseLocationOwnership(*ownershipText);
+            if (!parsedOwnership) {
+                addIssue(issues, RuleIssueCode::InvalidValue, source,
+                         prefix + QStringLiteral(".ownership"),
+                         QStringLiteral("未知目录所有权，只允许 shared 或 exclusive"));
+                continue;
+            }
+            ownership = *parsedOwnership;
+        }
 
         const auto scope = parseScope(*scopeText);
         if (!scope) {
@@ -352,7 +380,7 @@ void parseLocations(const QJsonObject &root,
             continue;
         }
         seenLocations.insert(locationKey);
-        locations.append({*scope, *path});
+        locations.append({*scope, *path, ownership});
     }
 }
 
