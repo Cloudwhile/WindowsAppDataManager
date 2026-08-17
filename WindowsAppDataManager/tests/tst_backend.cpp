@@ -405,10 +405,12 @@ void BackendTest::builtInCatalogContainsMvpApplications()
 {
     const auto &catalog = wam::core::rules::RuleCatalog::builtIn();
     QVERIFY2(catalog.issues().isEmpty(), "内置规则必须全部通过加载校验");
-    QCOMPARE(catalog.applications().size(), 7);
+    QCOMPARE(catalog.applications().size(), 9);
     QVERIFY(catalog.findById(QStringLiteral("google-chrome")));
     QVERIFY(catalog.findById(QStringLiteral("chromium")));
+    QVERIFY(catalog.findById(QStringLiteral("microsoft-edge")));
     QVERIFY(catalog.findById(QStringLiteral("discord")));
+    QVERIFY(catalog.findById(QStringLiteral("obs-studio")));
     QVERIFY(catalog.findById(QStringLiteral("visual-studio-code")));
     QVERIFY(catalog.findById(QStringLiteral("jetbrains")));
     QVERIFY(catalog.findById(QStringLiteral("windows-temp")));

@@ -1,0 +1,75 @@
+{
+  "$schema": "../schema.json",
+  "id": "obs-studio",
+  "version": "1",
+  "name": "OBS Studio",
+  "publisher": "OBS Project",
+  "applicationCategory": "音视频工具",
+  "executablePath": "%ProgramFiles%/obs-studio/bin/64bit/obs64.exe",
+  "installPath": "%ProgramFiles%/obs-studio",
+  "identifiers": {
+    "registryDisplayNames": ["OBS Studio"],
+    "registryPublishers": ["OBS Project"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "obs-studio" }
+  ],
+  "entries": [
+    {
+      "id": "browser-cache",
+      "path": "plugin_config/obs-browser/Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "浏览器源的网页资源会在后续使用时重新下载。"
+    },
+    {
+      "id": "browser-code-cache",
+      "path": "plugin_config/obs-browser/Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "浏览器源的脚本缓存会在后续使用时重新生成。"
+    },
+    {
+      "id": "browser-gpu-cache",
+      "path": "plugin_config/obs-browser/GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "浏览器源的图形缓存会重新生成。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断日志会移除，OBS 后续仍会生成新日志。"
+    },
+    {
+      "id": "crashes",
+      "path": "crashes",
+      "category": "crash-dump",
+      "risk": "low",
+      "rebuildable": false,
+      "impact": "旧崩溃记录会丢失，不影响 OBS 的配置和场景。"
+    },
+    {
+      "id": "profiles",
+      "path": "basic/profiles",
+      "category": "config",
+      "risk": "caution",
+      "rebuildable": false,
+      "impact": "包含录制、推流和设备配置，不应自动处理。"
+    },
+    {
+      "id": "scenes",
+      "path": "basic/scenes",
+      "category": "user-data",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含场景集合和来源配置，不应自动处理。"
+    }
+  ]
+}

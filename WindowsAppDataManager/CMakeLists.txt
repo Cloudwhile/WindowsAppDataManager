@@ -68,7 +68,9 @@ if(QT_VERSION_MAJOR EQUAL 6)
             rules/schema.json
             rules/builtin/chrome.json
             rules/builtin/chromium.json
+            rules/builtin/microsoft-edge.json
             rules/builtin/discord.json
+            rules/builtin/obs-studio.json
             rules/builtin/vscode.json
             rules/builtin/jetbrains.json
             rules/builtin/windows-temp.json
