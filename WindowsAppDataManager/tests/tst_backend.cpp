@@ -389,6 +389,10 @@ void BackendTest::ruleCatalogRejectsAmbiguousInstallationIdentifiers()
                          QStringLiteral("identifiers.registryDisplayNames")));
 
     QJsonObject distinctPublisher = validRuleObject(QStringLiteral("distinct-app"));
+    distinctPublisher.insert(QStringLiteral("executablePath"),
+                             QStringLiteral("C:/Program Files/Distinct/distinct.exe"));
+    distinctPublisher.insert(QStringLiteral("installPath"),
+                             QStringLiteral("C:/Program Files/Distinct"));
     distinctPublisher.insert(QStringLiteral("identifiers"), QJsonObject {
         {QStringLiteral("registryDisplayNames"), QJsonArray {QStringLiteral("Shared App")}},
         {QStringLiteral("registryPublishers"), QJsonArray {QStringLiteral("Publisher B")}}

@@ -15,7 +15,7 @@ namespace {
 
 QJsonObject evidenceRule(const QJsonObject &identifiers = {},
                          const QString &executablePath =
-                                 QStringLiteral("%WAM_TEST_MISSING%/sample.exe"))
+                                 QStringLiteral("C:/WAM_TEST_MISSING/sample.exe"))
 {
     QJsonObject rule {
         {QStringLiteral("id"), QStringLiteral("sample-app")},
@@ -24,7 +24,7 @@ QJsonObject evidenceRule(const QJsonObject &identifiers = {},
         {QStringLiteral("publisher"), QStringLiteral("Sample Publisher")},
         {QStringLiteral("applicationCategory"), QStringLiteral("工具")},
         {QStringLiteral("executablePath"), executablePath},
-        {QStringLiteral("installPath"), QStringLiteral("%WAM_TEST_MISSING%/sample")},
+        {QStringLiteral("installPath"), QStringLiteral("C:/WAM_TEST_MISSING/sample")},
         {QStringLiteral("locations"), QJsonArray {
              QJsonObject {
                  {QStringLiteral("scope"), QStringLiteral("local")},
@@ -89,11 +89,13 @@ class InstallationEvidenceTest final : public QObject {
 private slots:
     void completePartialAndUnavailableRemainDistinct();
     void partialSnapshotCanKeepPositiveEvidence();
+    void missingPublisherIsIncompleteInsteadOfConflict();
+    void partialPublisherMismatchRemainsIncomplete();
     void duplicateRecordsAreOrderIndependent();
     void multipleInstallPathsAreAmbiguous();
     void identityMatchingRejectsFuzzyValues();
     void appxMatchingUsesPackageIdentityOnly();
-    void executableOnlyEvidenceMarksInstalled();
+    void uncollectedExecutablePathRemainsUnknown();
 };
 
 void InstallationEvidenceTest::completePartialAndUnavailableRemainDistinct()
@@ -166,6 +168,62 @@ void InstallationEvidenceTest::partialSnapshotCanKeepPositiveEvidence()
                         wam::EvidenceStatus::Matched));
     QVERIFY(hasEvidence(target->application, wam::EvidenceSource::Registry,
                         wam::EvidenceStatus::Incomplete));
+}
+
+void InstallationEvidenceTest::missingPublisherIsIncompleteInsteadOfConflict()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    QVERIFY(QDir().mkpath(QDir(local).filePath(QStringLiteral("Sample/App Data"))));
+    const auto catalog = catalogFor(evidenceRule(registryIdentifiers()));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.registry.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.registry.records.append({
+        QStringLiteral("HKCU|64|sample"),
+        QStringLiteral("Sample App"),
+        {},
+        QStringLiteral("C:/Apps/Sample")
+    });
+
+    const auto targets = wam::core::AppResolver(catalog, evidence).discoverTargets({local});
+    const auto *target = sampleTarget(targets);
+    QVERIFY(target);
+    QCOMPARE(target->application.installState, wam::InstallState::Unknown);
+    QCOMPARE(target->application.confidence, 72);
+    QVERIFY(hasEvidence(target->application, wam::EvidenceSource::Registry,
+                        wam::EvidenceStatus::Incomplete));
+    QVERIFY(!hasEvidence(target->application, wam::EvidenceSource::Publisher,
+                         wam::EvidenceStatus::Conflict));
+}
+
+void InstallationEvidenceTest::partialPublisherMismatchRemainsIncomplete()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    QVERIFY(QDir().mkpath(QDir(local).filePath(QStringLiteral("Sample/App Data"))));
+    const auto catalog = catalogFor(evidenceRule(registryIdentifiers()));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.registry.availability = wam::InstallationEvidenceAvailability::Partial;
+    evidence.registry.records.append({
+        QStringLiteral("HKCU|64|sample"),
+        QStringLiteral("Sample App"),
+        QStringLiteral("Different Publisher"),
+        QStringLiteral("C:/Apps/Sample")
+    });
+
+    const auto targets = wam::core::AppResolver(catalog, evidence).discoverTargets({local});
+    const auto *target = sampleTarget(targets);
+    QVERIFY(target);
+    QCOMPARE(target->application.installState, wam::InstallState::Unknown);
+    QCOMPARE(target->application.confidence, 72);
+    QVERIFY(hasEvidence(target->application, wam::EvidenceSource::Registry,
+                        wam::EvidenceStatus::Incomplete));
+    QVERIFY(!hasEvidence(target->application, wam::EvidenceSource::Publisher,
+                         wam::EvidenceStatus::Conflict));
 }
 
 void InstallationEvidenceTest::duplicateRecordsAreOrderIndependent()
@@ -301,7 +359,7 @@ void InstallationEvidenceTest::appxMatchingUsesPackageIdentityOnly()
                         wam::EvidenceStatus::NotFound));
 }
 
-void InstallationEvidenceTest::executableOnlyEvidenceMarksInstalled()
+void InstallationEvidenceTest::uncollectedExecutablePathRemainsUnknown()
 {
     QTemporaryDir temporary;
     QVERIFY(temporary.isValid());
@@ -317,10 +375,10 @@ void InstallationEvidenceTest::executableOnlyEvidenceMarksInstalled()
     const auto targets = wam::core::AppResolver(catalog).discoverTargets({local});
     const auto *target = sampleTarget(targets);
     QVERIFY(target);
-    QCOMPARE(target->application.installState, wam::InstallState::Installed);
-    QCOMPARE(target->application.confidence, 92);
+    QCOMPARE(target->application.installState, wam::InstallState::Unknown);
+    QCOMPARE(target->application.confidence, 72);
     QVERIFY(hasEvidence(target->application, wam::EvidenceSource::Executable,
-                        wam::EvidenceStatus::Matched));
+                        wam::EvidenceStatus::Unavailable));
     QVERIFY(target->application.installState != wam::InstallState::PotentialOrphan);
 }
 
