@@ -9,7 +9,11 @@
   "installPath": "%ProgramFiles%/Google/Chrome/Application",
   "identifiers": {
     "registryDisplayNames": ["Google Chrome"],
-    "registryPublishers": ["Google LLC"]
+    "registryPublishers": ["Google LLC"],
+    "executableProductNames": ["Google Chrome"],
+    "executableCompanyNames": ["Google LLC"],
+    "executableOriginalFilenames": ["chrome.exe"],
+    "authenticodePublishers": ["Google LLC"]
   },
   "locations": [
     { "scope": "local", "path": "Google/Chrome/User Data" }

@@ -8,7 +8,10 @@
   "executablePath": "%LOCALAPPDATA%/Chromium/Application/chrome.exe",
   "installPath": "%LOCALAPPDATA%/Chromium/Application",
   "identifiers": {
-    "registryDisplayNames": ["Chromium"]
+    "registryDisplayNames": ["Chromium"],
+    "executableProductNames": ["Chromium"],
+    "executableCompanyNames": ["The Chromium Authors"],
+    "executableOriginalFilenames": ["chrome.exe"]
   },
   "locations": [
     { "scope": "local", "path": "Chromium" }

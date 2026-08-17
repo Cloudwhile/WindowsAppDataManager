@@ -1,5 +1,6 @@
 #include "RuleCatalog.h"
 #include "IdentifierNormalization.h"
+#include "RulePathResolver.h"
 
 #include <QDebug>
 #include <QFile>
@@ -71,6 +72,33 @@ void addClaims(const QStringList &identifiers,
     }
 }
 
+QStringList executablePathClaimKeys(const QString &path)
+{
+    QStringList keys;
+    const QString declaredKey = normalizedRulePathClaim(path);
+    if (!declaredKey.isEmpty())
+        keys.append(QStringLiteral("declared:") + declaredKey);
+
+    const RulePathResolution resolution = resolveRulePath(path);
+    if (resolution.isResolved()) {
+        const QString resolvedKey = normalizedPathKey(resolution.path);
+        if (!resolvedKey.isEmpty())
+            keys.append(QStringLiteral("resolved:") + resolvedKey);
+    }
+    return keys;
+}
+
+QString executablePathOwner(const QStringList &keys,
+                            const QHash<QString, QString> &claims)
+{
+    for (const QString &key : keys) {
+        const auto owner = claims.constFind(key);
+        if (owner != claims.cend())
+            return *owner;
+    }
+    return {};
+}
+
 } // namespace
 
 RuleCatalog RuleCatalog::fromJsonDocuments(const QVector<RuleDocument> &documents)
@@ -79,6 +107,7 @@ RuleCatalog RuleCatalog::fromJsonDocuments(const QVector<RuleDocument> &document
     QSet<QString> applicationIds;
     IdentifierClaims registryClaims;
     IdentifierClaims appxClaims;
+    QHash<QString, QString> executablePathClaims;
 
     for (const RuleDocument &document : documents) {
         RuleLoadResult loadResult = RuleLoader::load(document.json, document.sourceName);
@@ -128,6 +157,21 @@ RuleCatalog RuleCatalog::fromJsonDocuments(const QVector<RuleDocument> &document
             continue;
         }
 
+        const QStringList executablePathKeys = executablePathClaimKeys(
+                loadResult.rule->executablePath);
+        const QString executableOwner = executablePathOwner(
+                executablePathKeys, executablePathClaims);
+        if (!executableOwner.isEmpty()) {
+            catalog.m_issues.append({
+                RuleIssueCode::AmbiguousIdentifier,
+                document.sourceName,
+                QStringLiteral("executablePath"),
+                QStringLiteral("可执行文件路径与应用 %1 的声明重复，已跳过后加载的规则")
+                        .arg(executableOwner)
+            });
+            continue;
+        }
+
         applicationIds.insert(normalizedId);
         addClaims(loadResult.rule->identifiers.registryDisplayNames,
                   loadResult.rule->identifiers.registryPublishers,
@@ -137,6 +181,8 @@ RuleCatalog RuleCatalog::fromJsonDocuments(const QVector<RuleDocument> &document
                   loadResult.rule->identifiers.appxPublishers,
                   loadResult.rule->id,
                   appxClaims);
+        for (const QString &key : executablePathKeys)
+            executablePathClaims.insert(key, loadResult.rule->id);
         catalog.m_applications.append(std::move(*loadResult.rule));
     }
     return catalog;

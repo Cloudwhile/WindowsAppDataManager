@@ -1,5 +1,6 @@
 #include "RuleLoader.h"
 #include "IdentifierNormalization.h"
+#include "RulePathResolver.h"
 
 #include <QDir>
 #include <QHash>
@@ -240,7 +241,11 @@ void parseIdentifiers(const QJsonObject &root,
                         {QStringLiteral("registryDisplayNames"),
                          QStringLiteral("registryPublishers"),
                          QStringLiteral("appxPackageNames"),
-                         QStringLiteral("appxPublishers")},
+                         QStringLiteral("appxPublishers"),
+                         QStringLiteral("executableProductNames"),
+                         QStringLiteral("executableCompanyNames"),
+                         QStringLiteral("executableOriginalFilenames"),
+                         QStringLiteral("authenticodePublishers")},
                         QStringLiteral("identifiers"), source, issues);
     if (object.isEmpty()) {
         addIssue(issues, RuleIssueCode::InvalidValue, source,
@@ -257,6 +262,14 @@ void parseIdentifiers(const QJsonObject &root,
                          identifiers.appxPackageNames, issues);
     parseIdentifierArray(object, QStringLiteral("appxPublishers"), source,
                          identifiers.appxPublishers, issues);
+    parseIdentifierArray(object, QStringLiteral("executableProductNames"), source,
+                         identifiers.executableProductNames, issues);
+    parseIdentifierArray(object, QStringLiteral("executableCompanyNames"), source,
+                         identifiers.executableCompanyNames, issues);
+    parseIdentifierArray(object, QStringLiteral("executableOriginalFilenames"), source,
+                         identifiers.executableOriginalFilenames, issues);
+    parseIdentifierArray(object, QStringLiteral("authenticodePublishers"), source,
+                         identifiers.authenticodePublishers, issues);
 
     if (!identifiers.registryPublishers.isEmpty()
             && identifiers.registryDisplayNames.isEmpty()) {
@@ -511,6 +524,24 @@ RuleLoadResult RuleLoader::load(const QByteArray &json, const QString &sourceNam
         addIssue(result.issues, RuleIssueCode::InvalidValue, source, QStringLiteral("id"),
                  QStringLiteral("应用标识只能包含小写字母、数字、点、下划线和连字符"));
     }
+    const auto validateAbsoluteRulePath = [&result, &root, &source](
+            const std::optional<QString> &path, const QString &field) {
+        if (!path)
+            return;
+        const QString rawPath = root.value(field).toString();
+        if (rawPath != rawPath.trimmed()) {
+            addIssue(result.issues, RuleIssueCode::UnsafePath, source, field,
+                     QStringLiteral("规则路径不安全：路径首尾不能包含空白字符"));
+            return;
+        }
+        QString error;
+        if (!validateRulePath(*path, &error)) {
+            addIssue(result.issues, RuleIssueCode::UnsafePath, source, field,
+                     QStringLiteral("规则路径不安全：%1").arg(error));
+        }
+    };
+    validateAbsoluteRulePath(executablePath, QStringLiteral("executablePath"));
+    validateAbsoluteRulePath(installPath, QStringLiteral("installPath"));
 
     parseIdentifiers(root, source, rule.identifiers, result.issues);
     parseLocations(root, source, rule.locations, result.issues);

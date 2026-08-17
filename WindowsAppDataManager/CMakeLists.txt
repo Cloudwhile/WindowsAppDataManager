@@ -33,6 +33,8 @@ set(BACKEND_SOURCES
     src/core/rules/RuleCatalog.h
     src/core/rules/RuleLoader.cpp
     src/core/rules/RuleLoader.h
+    src/core/rules/RulePathResolver.cpp
+    src/core/rules/RulePathResolver.h
     src/core/scanner/DirectoryScanner.cpp
     src/core/scanner/DirectoryScanner.h
     src/models/ApplicationInfo.h
@@ -43,10 +45,18 @@ set(BACKEND_SOURCES
     src/platform/windows/appx/AppxPackageCatalog.h
     src/platform/windows/filesystem/AppDataPaths.cpp
     src/platform/windows/filesystem/AppDataPaths.h
+    src/platform/windows/filesystem/ExecutableFileIdentity.cpp
+    src/platform/windows/filesystem/ExecutableFileIdentity.h
+    src/platform/windows/filesystem/ExecutableMetadataReader.cpp
+    src/platform/windows/filesystem/ExecutableMetadataReader.h
     src/platform/windows/filesystem/ReparsePoint.cpp
     src/platform/windows/filesystem/ReparsePoint.h
     src/platform/windows/registry/InstalledApplicationRegistry.cpp
     src/platform/windows/registry/InstalledApplicationRegistry.h
+    src/platform/windows/security/AuthenticodeVerifier.cpp
+    src/platform/windows/security/AuthenticodeVerifier.h
+    src/services/InstallationEvidenceCollector.cpp
+    src/services/InstallationEvidenceCollector.h
     src/services/ScanService.cpp
     src/services/ScanService.h
     src/services/SettingsService.cpp
@@ -55,8 +65,17 @@ set(BACKEND_SOURCES
 
 add_library(wam_backend STATIC ${BACKEND_SOURCES})
 target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent)
+if(MSVC)
+    target_compile_options(wam_backend PRIVATE /EHsc)
+endif()
 if(WIN32)
-    target_link_libraries(wam_backend PRIVATE windowsapp advapi32)
+    target_link_libraries(wam_backend PRIVATE
+        windowsapp
+        advapi32
+        crypt32
+        version
+        wintrust
+    )
 endif()
 target_include_directories(wam_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

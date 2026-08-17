@@ -12,6 +12,25 @@ enum class InstallationEvidenceAvailability {
     Unavailable
 };
 
+enum class ExecutablePathState {
+    Present,
+    Missing,
+    Unavailable
+};
+
+enum class VersionMetadataState {
+    Available,
+    Missing,
+    Unavailable
+};
+
+enum class AuthenticodeState {
+    Trusted,
+    Unsigned,
+    Untrusted,
+    Unavailable
+};
+
 struct RegistryInstallationRecord {
     QString identity;
     QString displayName;
@@ -27,6 +46,18 @@ struct AppxInstallationRecord {
     QString installPath;
 };
 
+struct ExecutableEvidenceRecord {
+    QString path;
+    ExecutablePathState pathState = ExecutablePathState::Unavailable;
+    VersionMetadataState metadataState = VersionMetadataState::Unavailable;
+    QString productName;
+    QString companyName;
+    QString fileDescription;
+    QString originalFilename;
+    AuthenticodeState authenticodeState = AuthenticodeState::Unavailable;
+    QString signerPublisher;
+};
+
 template <typename Record>
 struct InstallationEvidenceSourceSnapshot {
     InstallationEvidenceAvailability availability =
@@ -38,6 +69,7 @@ struct InstallationEvidenceSourceSnapshot {
 struct InstallationEvidenceSnapshot {
     InstallationEvidenceSourceSnapshot<RegistryInstallationRecord> registry;
     InstallationEvidenceSourceSnapshot<AppxInstallationRecord> appx;
+    InstallationEvidenceSourceSnapshot<ExecutableEvidenceRecord> executable;
 };
 
 } // namespace wam

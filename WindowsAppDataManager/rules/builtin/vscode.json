@@ -12,7 +12,11 @@
       "Microsoft Visual Studio Code",
       "Microsoft Visual Studio Code (User)"
     ],
-    "registryPublishers": ["Microsoft Corporation"]
+    "registryPublishers": ["Microsoft Corporation"],
+    "executableProductNames": ["Visual Studio Code"],
+    "executableCompanyNames": ["Microsoft Corporation"],
+    "executableOriginalFilenames": ["Code.exe"],
+    "authenticodePublishers": ["Microsoft Corporation"]
   },
   "locations": [
     { "scope": "roaming", "path": "Code" }

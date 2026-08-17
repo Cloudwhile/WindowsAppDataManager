@@ -45,6 +45,10 @@ struct RuleIdentifiers {
     QStringList registryPublishers;
     QStringList appxPackageNames;
     QStringList appxPublishers;
+    QStringList executableProductNames;
+    QStringList executableCompanyNames;
+    QStringList executableOriginalFilenames;
+    QStringList authenticodePublishers;
 };
 
 struct ApplicationRule {

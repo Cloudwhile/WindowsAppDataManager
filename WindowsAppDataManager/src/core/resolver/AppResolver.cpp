@@ -1,5 +1,6 @@
 #include "AppResolver.h"
 #include "../rules/IdentifierNormalization.h"
+#include "../rules/RulePathResolver.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -57,6 +58,20 @@ QString normalizedInstallPath(const QString &value)
     if (value.trimmed().isEmpty())
         return {};
     return QDir::fromNativeSeparators(QDir::cleanPath(value)).toCaseFolded();
+}
+
+QString normalizedScanPathKey(const QString &path)
+{
+    if (path.isEmpty())
+        return {};
+
+    QString normalized = QDir::cleanPath(QDir::fromNativeSeparators(path));
+    if (normalized.isEmpty() || !QDir::isAbsolutePath(normalized))
+        return {};
+#ifdef Q_OS_WIN
+    normalized = normalized.toCaseFolded();
+#endif
+    return normalized;
 }
 
 auto candidateSortKey(const InstallationCandidate &candidate)
@@ -120,20 +135,29 @@ InstallationMatch matchInstallationRecords(
     candidates.erase(std::unique(candidates.begin(), candidates.end(), sameEffectiveCandidate),
                      candidates.end());
 
-    QVector<InstallationCandidate> primaryMatches;
     QVector<InstallationCandidate> completeMatches;
+    QVector<InstallationCandidate> missingPublisherMatches;
+    QVector<InstallationCandidate> conflictingPublisherMatches;
     for (const InstallationCandidate &candidate : std::as_const(candidates)) {
         const bool identityMatches = matchesAnyIdentity(candidate.primary, identities);
         if (!identityMatches)
             continue;
-        primaryMatches.append(candidate);
-        const bool publisherMatches = publishers.isEmpty()
-                || matchesAnyIdentity(candidate.publisher, publishers);
-        if (publisherMatches)
+        if (publishers.isEmpty()) {
             completeMatches.append(candidate);
+            continue;
+        }
+        if (candidate.publisher.trimmed().isEmpty()) {
+            missingPublisherMatches.append(candidate);
+            continue;
+        }
+        if (matchesAnyIdentity(candidate.publisher, publishers))
+            completeMatches.append(candidate);
+        else
+            conflictingPublisherMatches.append(candidate);
     }
 
-    const bool incomplete = availability != InstallationEvidenceAvailability::Complete;
+    const bool incomplete = availability != InstallationEvidenceAvailability::Complete
+            || !missingPublisherMatches.isEmpty();
     if (completeMatches.size() == 1) {
         return {InstallationMatchStatus::Matched, completeMatches.constFirst(), 1,
                 incomplete};
@@ -142,9 +166,17 @@ InstallationMatch matchInstallationRecords(
         return {InstallationMatchStatus::Ambiguous, completeMatches.constFirst(),
                 static_cast<int>(completeMatches.size()), incomplete};
     }
-    if (!primaryMatches.isEmpty() && !publishers.isEmpty()) {
-        return {InstallationMatchStatus::Conflict, primaryMatches.constFirst(),
-                static_cast<int>(primaryMatches.size()), incomplete};
+    if (!missingPublisherMatches.isEmpty()) {
+        return {InstallationMatchStatus::Incomplete,
+                missingPublisherMatches.constFirst(),
+                static_cast<int>(missingPublisherMatches.size()), true};
+    }
+    if (!conflictingPublisherMatches.isEmpty()) {
+        if (availability != InstallationEvidenceAvailability::Complete)
+            return {InstallationMatchStatus::Incomplete, {}, 0, true};
+        return {InstallationMatchStatus::Conflict,
+                conflictingPublisherMatches.constFirst(),
+                static_cast<int>(conflictingPublisherMatches.size()), incomplete};
     }
 
     switch (availability) {
@@ -186,7 +218,10 @@ QString registryEvidenceDetail(const InstallationMatch &match)
     case InstallationMatchStatus::Conflict:
         return QStringLiteral("注册表显示名称已命中，但发布者与规则不一致");
     case InstallationMatchStatus::Incomplete:
-        return QStringLiteral("注册表安装信息仅部分可用，未获得可用于否定安装状态的完整证据");
+        return match.candidateCount > 0
+                ? QStringLiteral("注册表显示名称已命中，但 %1 条记录缺少规则要求的发布者")
+                          .arg(match.candidateCount)
+                : QStringLiteral("注册表安装信息仅部分可用，未获得可用于否定安装状态的完整证据");
     case InstallationMatchStatus::Unavailable:
         return QStringLiteral("注册表安装信息当前不可用，未降低目录归属置信度");
     case InstallationMatchStatus::NotConfigured:
@@ -208,13 +243,233 @@ QString appxEvidenceDetail(const InstallationMatch &match)
     case InstallationMatchStatus::Conflict:
         return QStringLiteral("AppX / MSIX 包名已命中，但发布者与规则不一致");
     case InstallationMatchStatus::Incomplete:
-        return QStringLiteral("AppX / MSIX 包信息仅部分可用，未获得可用于否定安装状态的完整证据");
+        return match.candidateCount > 0
+                ? QStringLiteral("AppX / MSIX 包名已命中，但 %1 条记录缺少规则要求的发布者")
+                          .arg(match.candidateCount)
+                : QStringLiteral("AppX / MSIX 包信息仅部分可用，未获得可用于否定安装状态的完整证据");
     case InstallationMatchStatus::Unavailable:
         return QStringLiteral("AppX / MSIX 包信息当前不可用，未降低目录归属置信度");
     case InstallationMatchStatus::NotConfigured:
         return {};
     }
     return {};
+}
+
+struct ExecutableMatch {
+    EvidenceStatus status = EvidenceStatus::Unavailable;
+    QString detail;
+    std::optional<EvidenceInfo> publisherEvidence;
+    bool positive = false;
+    bool metadataMatched = false;
+    bool signatureMatched = false;
+    bool signatureUntrusted = false;
+    bool conflict = false;
+};
+
+bool hasMetadataIdentifiers(const RuleIdentifiers &identifiers)
+{
+    return !identifiers.executableProductNames.isEmpty()
+            || !identifiers.executableCompanyNames.isEmpty()
+            || !identifiers.executableOriginalFilenames.isEmpty();
+}
+
+QString observedMetadataDetail(const ExecutableEvidenceRecord &record)
+{
+    QStringList values;
+    if (!record.productName.isEmpty())
+        values.append(QStringLiteral("产品“%1”").arg(record.productName));
+    if (!record.companyName.isEmpty())
+        values.append(QStringLiteral("公司“%1”").arg(record.companyName));
+    if (!record.originalFilename.isEmpty())
+        values.append(QStringLiteral("原始文件“%1”").arg(record.originalFilename));
+    return values.join(QStringLiteral("，"));
+}
+
+QStringList metadataMismatches(const RuleIdentifiers &identifiers,
+                               const ExecutableEvidenceRecord &record)
+{
+    QStringList mismatches;
+    if (!identifiers.executableProductNames.isEmpty()
+            && !record.productName.trimmed().isEmpty()
+            && !matchesAnyIdentity(record.productName,
+                                   identifiers.executableProductNames)) {
+        mismatches.append(QStringLiteral("产品名"));
+    }
+    if (!identifiers.executableCompanyNames.isEmpty()
+            && !record.companyName.trimmed().isEmpty()
+            && !matchesAnyIdentity(record.companyName,
+                                   identifiers.executableCompanyNames)) {
+        mismatches.append(QStringLiteral("公司名"));
+    }
+    if (!identifiers.executableOriginalFilenames.isEmpty()
+            && !record.originalFilename.trimmed().isEmpty()
+            && !matchesAnyIdentity(record.originalFilename,
+                                   identifiers.executableOriginalFilenames)) {
+        mismatches.append(QStringLiteral("原始文件名"));
+    }
+    return mismatches;
+}
+
+QStringList missingMetadataFields(const RuleIdentifiers &identifiers,
+                                  const ExecutableEvidenceRecord &record)
+{
+    QStringList missing;
+    if (!identifiers.executableProductNames.isEmpty()
+            && record.productName.trimmed().isEmpty()) {
+        missing.append(QStringLiteral("产品名"));
+    }
+    if (!identifiers.executableCompanyNames.isEmpty()
+            && record.companyName.trimmed().isEmpty()) {
+        missing.append(QStringLiteral("公司名"));
+    }
+    if (!identifiers.executableOriginalFilenames.isEmpty()
+            && record.originalFilename.trimmed().isEmpty()) {
+        missing.append(QStringLiteral("原始文件名"));
+    }
+    return missing;
+}
+
+EvidenceInfo publisherEvidence(const RuleIdentifiers &identifiers,
+                               const ExecutableEvidenceRecord &record,
+                               bool &signatureMatched,
+                               bool &signatureConflict)
+{
+    const bool expected = !identifiers.authenticodePublishers.isEmpty();
+    switch (record.authenticodeState) {
+    case AuthenticodeState::Trusted: {
+        if (record.signerPublisher.trimmed().isEmpty()) {
+            return {EvidenceSource::Publisher, EvidenceStatus::Incomplete,
+                    QStringLiteral("签名信任验证通过，但无法读取签名发布者名称")};
+        }
+        const bool matched = expected
+                && matchesAnyIdentity(record.signerPublisher,
+                                      identifiers.authenticodePublishers);
+        signatureMatched = matched;
+        signatureConflict = expected && !matched;
+        if (matched) {
+            return {EvidenceSource::Publisher, EvidenceStatus::Matched,
+                    QStringLiteral("可信 Authenticode 签名发布者“%1”与规则精确一致")
+                            .arg(record.signerPublisher)};
+        }
+        if (signatureConflict) {
+            return {EvidenceSource::Publisher, EvidenceStatus::Conflict,
+                    QStringLiteral("可信签名发布者“%1”不在规则允许列表中")
+                            .arg(record.signerPublisher)};
+        }
+        return {EvidenceSource::Publisher, EvidenceStatus::Partial,
+                QStringLiteral("签名可信，发布者为“%1”；规则未声明签名发布者标识")
+                        .arg(record.signerPublisher)};
+    }
+    case AuthenticodeState::Unsigned:
+        return {EvidenceSource::Publisher, EvidenceStatus::NotFound,
+                expected
+                        ? QStringLiteral("文件没有 Authenticode 签名，无法满足规则的发布者验证")
+                        : QStringLiteral("文件没有 Authenticode 签名，未获得发布者证据")};
+    case AuthenticodeState::Untrusted:
+        return {EvidenceSource::Publisher, EvidenceStatus::Incomplete,
+                record.signerPublisher.trimmed().isEmpty()
+                        ? QStringLiteral("存在 Authenticode 签名，但离线信任验证未通过")
+                        : QStringLiteral("存在发布者为“%1”的 Authenticode 签名，但离线信任验证未通过")
+                                  .arg(record.signerPublisher)};
+    case AuthenticodeState::Unavailable:
+        return {EvidenceSource::Publisher, EvidenceStatus::Unavailable,
+                QStringLiteral("Authenticode 验证当前不可用，未获得发布者证据")};
+    }
+    return {EvidenceSource::Publisher, EvidenceStatus::Unavailable,
+            QStringLiteral("Authenticode 状态未知")};
+}
+
+ExecutableMatch matchExecutableEvidence(
+        const ApplicationRule &rule,
+        const QString &expectedPath,
+        const InstallationEvidenceSourceSnapshot<ExecutableEvidenceRecord> &snapshot)
+{
+    QVector<const ExecutableEvidenceRecord *> matches;
+    const QString expectedKey = rules::normalizedPathKey(expectedPath);
+    if (expectedKey.isEmpty()) {
+        return {EvidenceStatus::Unavailable,
+                QStringLiteral("规则路径依赖的环境变量当前不可用，未访问相对路径")};
+    }
+    for (const ExecutableEvidenceRecord &record : snapshot.records) {
+        const QString recordKey = rules::normalizedPathKey(record.path);
+        if (!recordKey.isEmpty() && recordKey == expectedKey)
+            matches.append(&record);
+    }
+
+    if (matches.size() > 1) {
+        return {EvidenceStatus::Ambiguous,
+                QStringLiteral("可执行文件证据包含 %1 条相同路径记录，未选择不确定结果")
+                        .arg(matches.size())};
+    }
+    if (matches.isEmpty()) {
+        if (snapshot.availability == InstallationEvidenceAvailability::Unavailable) {
+            return {EvidenceStatus::Unavailable,
+                    QStringLiteral("可执行文件证据当前不可用，未降低目录归属置信度")};
+        }
+        return {EvidenceStatus::Incomplete,
+                QStringLiteral("可执行文件证据快照缺少该规则路径，未作否定判断")};
+    }
+
+    const ExecutableEvidenceRecord &record = *matches.constFirst();
+    if (record.pathState == ExecutablePathState::Missing) {
+        return {EvidenceStatus::NotFound,
+                QStringLiteral("未找到规则声明的可执行文件，不能据此判断为残留")};
+    }
+    if (record.pathState == ExecutablePathState::Unavailable) {
+        return {EvidenceStatus::Unavailable,
+                QStringLiteral("无法读取规则声明的可执行文件，未作否定判断")};
+    }
+
+    ExecutableMatch result;
+    const bool metadataExpected = hasMetadataIdentifiers(rule.identifiers);
+    if (!metadataExpected) {
+        result.status = EvidenceStatus::Partial;
+        result.detail = QStringLiteral("预期可执行路径存在；规则未声明版本资源标识");
+        result.positive = true;
+    } else if (record.metadataState == VersionMetadataState::Available) {
+        const QStringList mismatches = metadataMismatches(rule.identifiers, record);
+        const QStringList missingFields = missingMetadataFields(rule.identifiers, record);
+        if (!mismatches.isEmpty()) {
+            result.status = EvidenceStatus::Conflict;
+            result.detail = QStringLiteral("预期路径存在，但版本资源中的%1与规则不一致")
+                                    .arg(mismatches.join(QStringLiteral("、")));
+            result.conflict = true;
+        } else if (!missingFields.isEmpty()) {
+            result.status = EvidenceStatus::Incomplete;
+            result.detail = QStringLiteral("预期路径存在，但版本资源缺少规则要求的%1")
+                                    .arg(missingFields.join(QStringLiteral("、")));
+        } else {
+            result.status = EvidenceStatus::Matched;
+            const QString observed = observedMetadataDetail(record);
+            result.detail = observed.isEmpty()
+                    ? QStringLiteral("可执行文件版本资源与规则精确匹配")
+                    : QStringLiteral("可执行文件版本资源精确匹配：%1").arg(observed);
+            result.positive = true;
+            result.metadataMatched = true;
+        }
+    } else if (record.metadataState == VersionMetadataState::Missing) {
+        result.status = EvidenceStatus::Incomplete;
+        result.detail = QStringLiteral("预期路径存在，但文件没有规则要求的版本资源");
+    } else {
+        result.status = EvidenceStatus::Incomplete;
+        result.detail = QStringLiteral("预期路径存在，但版本资源当前无法读取");
+    }
+
+    bool signatureConflict = false;
+    result.publisherEvidence = publisherEvidence(
+            rule.identifiers, record, result.signatureMatched, signatureConflict);
+    result.signatureUntrusted = record.authenticodeState == AuthenticodeState::Untrusted;
+    result.conflict = result.conflict || signatureConflict;
+    if (signatureConflict)
+        result.positive = false;
+
+    const bool signatureExpected = !rule.identifiers.authenticodePublishers.isEmpty();
+    if (signatureExpected && !result.signatureMatched) {
+        result.positive = false;
+    } else if (result.signatureUntrusted) {
+        result.positive = false;
+    }
+    return result;
 }
 
 QString rootScopeName(const QString &root)
@@ -251,35 +506,9 @@ QString scopeName(RuleScope scope)
     return QStringLiteral("unknown");
 }
 
-QString normalizedAbsolutePath(const QString &path)
-{
-    return QDir::fromNativeSeparators(
-            QDir::cleanPath(QFileInfo(path).absoluteFilePath())).toCaseFolded();
-}
-
-QString expandEnvironmentPath(QString value)
-{
-    static const QStringList variables {
-        QStringLiteral("LOCALAPPDATA"),
-        QStringLiteral("APPDATA"),
-        QStringLiteral("USERPROFILE"),
-        QStringLiteral("SystemRoot"),
-        QStringLiteral("ProgramFiles"),
-        QStringLiteral("ProgramFiles(x86)")
-    };
-    for (const QString &variable : variables) {
-        const QString replacement = qEnvironmentVariable(variable.toUtf8().constData());
-        if (!replacement.isEmpty()) {
-            value.replace(QLatin1Char('%') + variable + QLatin1Char('%'), replacement,
-                          Qt::CaseInsensitive);
-        }
-    }
-    return QDir::cleanPath(value);
-}
-
 QString validatedEvidenceInstallPath(const QString &value)
 {
-    const QString expanded = expandEnvironmentPath(value.trimmed());
+    const QString expanded = rules::expandRulePath(value);
     if (!QFileInfo(expanded).isAbsolute())
         return {};
     return QDir::toNativeSeparators(QDir::cleanPath(expanded));
@@ -294,8 +523,11 @@ QString ruleSource(const ApplicationRule &rule)
 
 QString targetId(const QString &scope, const QString &path)
 {
+    QString stablePath = normalizedScanPathKey(path);
+    if (stablePath.isEmpty())
+        stablePath = QDir::cleanPath(QDir::fromNativeSeparators(path));
     const QByteArray digest = QCryptographicHash::hash(
-            normalizedAbsolutePath(path).toUtf8(), QCryptographicHash::Sha256)
+            stablePath.toUtf8(), QCryptographicHash::Sha256)
                                       .toHex().left(16);
     return QStringLiteral("unknown-%1-%2").arg(scope, QString::fromLatin1(digest));
 }
@@ -312,11 +544,12 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
     application.category = rule.category;
     application.location = QDir::toNativeSeparators(path);
     application.executablePath = QDir::toNativeSeparators(
-            expandEnvironmentPath(rule.executablePath));
+            rules::expandRulePath(rule.executablePath));
     application.installPath = QDir::toNativeSeparators(
-            expandEnvironmentPath(rule.installPath));
+            rules::expandRulePath(rule.installPath));
 
-    const bool executableExists = QFileInfo::exists(application.executablePath);
+    const ExecutableMatch executableMatch = matchExecutableEvidence(
+            rule, application.executablePath, evidence.executable);
     const InstallationMatch registryMatch = matchInstallationRecords(
             rule.identifiers.registryDisplayNames,
             rule.identifiers.registryPublishers,
@@ -333,32 +566,37 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
             || registryMatch.status == InstallationMatchStatus::Ambiguous;
     const bool appxPositive = appxMatched
             || appxMatch.status == InstallationMatchStatus::Ambiguous;
-    const int strongEvidenceCount = static_cast<int>(executableExists)
+    const int strongEvidenceCount = static_cast<int>(executableMatch.positive)
             + static_cast<int>(registryPositive) + static_cast<int>(appxPositive);
     const bool hasAmbiguity = registryMatch.status == InstallationMatchStatus::Ambiguous
             || appxMatch.status == InstallationMatchStatus::Ambiguous;
     const bool hasConflict = registryMatch.status == InstallationMatchStatus::Conflict
-            || appxMatch.status == InstallationMatchStatus::Conflict;
+            || appxMatch.status == InstallationMatchStatus::Conflict
+            || executableMatch.conflict;
 
     application.installState = strongEvidenceCount > 0
             ? InstallState::Installed : InstallState::Unknown;
     if (strongEvidenceCount >= 2)
         application.confidence = 98;
+    else if (executableMatch.positive && executableMatch.signatureMatched)
+        application.confidence = 97;
     else if (appxMatched)
         application.confidence = 96;
     else if (registryMatched)
         application.confidence = 94;
-    else if (executableExists)
-        application.confidence = 92;
+    else if (executableMatch.positive)
+        application.confidence = 88;
     else if (registryPositive || appxPositive)
         application.confidence = 90;
     else
         application.confidence = 72;
     if (hasAmbiguity)
         application.confidence = std::min(application.confidence, 96);
+    if (executableMatch.signatureUntrusted)
+        application.confidence = std::min(application.confidence, 90);
     if (hasConflict) {
         application.confidence = strongEvidenceCount == 0
-                ? 49 : std::min(application.confidence, 96);
+                ? 49 : std::min(application.confidence, 90);
     }
     application.risk = RiskLevel::Caution;
 
@@ -384,10 +622,11 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
     });
     application.evidence.append({
         EvidenceSource::Executable,
-        executableExists ? EvidenceStatus::Matched : EvidenceStatus::NotFound,
-        executableExists ? QStringLiteral("预期可执行文件存在")
-                         : QStringLiteral("未找到预期可执行文件，不能据此判断为残留")
+        executableMatch.status,
+        executableMatch.detail
     });
+    if (executableMatch.publisherEvidence)
+        application.evidence.append(*executableMatch.publisherEvidence);
 
     if (registryMatch.status != InstallationMatchStatus::NotConfigured) {
         application.evidence.append({
@@ -527,7 +766,9 @@ QVector<ScanTarget> AppResolver::discoverTargets(const QStringList &roots) const
                         rule.entries,
                         ruleSource(rule)
                     });
-                    knownPaths.insert(normalizedAbsolutePath(path));
+                    const QString knownPath = normalizedScanPathKey(path);
+                    if (!knownPath.isEmpty())
+                        knownPaths.insert(knownPath);
                 }
             }
         }
@@ -537,15 +778,17 @@ QVector<ScanTarget> AppResolver::discoverTargets(const QStringList &roots) const
                 QDir::Name | QDir::IgnoreCase);
         for (const QFileInfo &directory : directories) {
             const QString path = QDir::cleanPath(directory.absoluteFilePath());
-            const QString normalizedPath = normalizedAbsolutePath(path);
-            if (knownPaths.contains(normalizedPath))
+            const QString normalizedPath = normalizedScanPathKey(path);
+            if (!normalizedPath.isEmpty() && knownPaths.contains(normalizedPath))
                 continue;
 
             QStringList exclusions;
-            const QString descendantPrefix = normalizedPath + QLatin1Char('/');
-            for (const QString &knownPath : std::as_const(knownPaths)) {
-                if (knownPath.startsWith(descendantPrefix))
-                    exclusions.append(QDir::toNativeSeparators(knownPath));
+            if (!normalizedPath.isEmpty()) {
+                const QString descendantPrefix = normalizedPath + QLatin1Char('/');
+                for (const QString &knownPath : std::as_const(knownPaths)) {
+                    if (knownPath.startsWith(descendantPrefix))
+                        exclusions.append(QDir::toNativeSeparators(knownPath));
+                }
             }
             exclusions.sort(Qt::CaseInsensitive);
             targets.append({unknownApplicationInfo(scope, directory), path, exclusions, {}, {}});

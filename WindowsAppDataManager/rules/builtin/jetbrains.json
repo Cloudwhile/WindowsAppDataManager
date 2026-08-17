@@ -7,6 +7,12 @@
   "applicationCategory": "开发工具",
   "executablePath": "%LOCALAPPDATA%/JetBrains/Toolbox/bin/jetbrains-toolbox.exe",
   "installPath": "%LOCALAPPDATA%/JetBrains/Toolbox",
+  "identifiers": {
+    "executableProductNames": ["JetBrains Toolbox"],
+    "executableCompanyNames": ["JetBrains s.r.o."],
+    "executableOriginalFilenames": ["jetbrains-toolbox.exe"],
+    "authenticodePublishers": ["JetBrains s.r.o."]
+  },
   "locations": [
     { "scope": "local", "path": "JetBrains" },
     { "scope": "roaming", "path": "JetBrains" }

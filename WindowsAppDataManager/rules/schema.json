@@ -22,8 +22,8 @@
     "name": { "type": "string", "minLength": 1 },
     "publisher": { "type": "string", "minLength": 1 },
     "applicationCategory": { "type": "string", "minLength": 1 },
-    "executablePath": { "type": "string", "minLength": 1 },
-    "installPath": { "type": "string", "minLength": 1 },
+    "executablePath": { "$ref": "#/$defs/absoluteRulePath" },
+    "installPath": { "$ref": "#/$defs/absoluteRulePath" },
     "identifiers": {
       "type": "object",
       "additionalProperties": false,
@@ -58,6 +58,30 @@
           "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
         },
         "appxPublishers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "executableProductNames": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "executableCompanyNames": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "executableOriginalFilenames": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "authenticodePublishers": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -104,6 +128,23 @@
           },
           "impact": { "type": "string", "minLength": 1 }
         }
+      }
+    }
+  },
+  "$defs": {
+    "absoluteRulePath": {
+      "type": "string",
+      "minLength": 1,
+      "oneOf": [
+        {
+          "pattern": "^[A-Za-z]:[\\\\/][^%:]*$"
+        },
+        {
+          "pattern": "^%(?:LOCALAPPDATA|APPDATA|USERPROFILE|SystemRoot|ProgramFiles|ProgramFiles\\(x86\\))%(?:[\\\\/][^%:]*)?$"
+        }
+      ],
+      "not": {
+        "pattern": "(?:^|[\\\\/])\\.{1,2}(?:[\\\\/]|$)"
       }
     }
   }
