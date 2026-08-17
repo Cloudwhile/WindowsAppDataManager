@@ -69,11 +69,13 @@ Rectangle {
             Layout.fillWidth: control.compact
             Layout.preferredWidth: control.compact ? 132 : 116
             Layout.preferredHeight: 36
-            model: ["全部状态", "已安装", "状态未知"]
+            model: ["全部状态", "已安装", "潜在残留", "状态未知"]
             currentIndex: control.filterModel.installStateFilter === 0 ? 1
-                          : control.filterModel.installStateFilter === 2 ? 2 : 0
+                          : control.filterModel.installStateFilter === 1 ? 2
+                          : control.filterModel.installStateFilter === 2 ? 3 : 0
             onActivated: index => control.filterModel.installStateFilter = index === 1 ? 0
-                                                                                       : index === 2 ? 2 : -1
+                                                                                       : index === 2 ? 1
+                                                                                       : index === 3 ? 2 : -1
         }
 
         FilterComboBox {

@@ -40,6 +40,9 @@ QtObject {
             "unknownSizeText": "0 B",
             "accentIndex": 0,
             "summary": "开始扫描后，这里会显示应用归属、数据分类与识别证据。",
+            "orphanConfidence": 0,
+            "orphanSummary": "",
+            "orphanBlockingReasons": [],
             "dataGroups": [],
             "evidence": []
         }

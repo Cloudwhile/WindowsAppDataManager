@@ -50,6 +50,9 @@ public:
         UnknownSizeTextRole,
         AccentIndexRole,
         SummaryRole,
+        OrphanConfidenceRole,
+        OrphanSummaryRole,
+        OrphanBlockingReasonsRole,
         DataGroupsRole,
         EvidenceRole
     };

@@ -119,6 +119,7 @@ QString evidenceSourceText(EvidenceSource source)
     case EvidenceSource::Folder: return QStringLiteral("目录名称");
     case EvidenceSource::Rule: return QStringLiteral("目录规则");
     case EvidenceSource::RunningProcess: return QStringLiteral("运行进程");
+    case EvidenceSource::InstallPath: return QStringLiteral("安装路径");
     }
     return QStringLiteral("未知来源");
 }
@@ -223,6 +224,10 @@ QVariant ApplicationListModel::data(const QModelIndex &index, int role) const
     case UnknownSizeTextRole: return formatSize(application.unknownSize);
     case AccentIndexRole: return accentIndexFor(application.id);
     case SummaryRole: return application.summary;
+    case OrphanConfidenceRole: return application.orphanAssessment.confidence;
+    case OrphanSummaryRole: return application.orphanAssessment.summary;
+    case OrphanBlockingReasonsRole:
+        return application.orphanAssessment.blockingReasons;
     case DataGroupsRole: return groupMaps(application);
     case EvidenceRole: return evidenceMaps(application);
     default: return {};
@@ -241,6 +246,9 @@ QHash<int, QByteArray> ApplicationListModel::roleNames() const
         {RiskLevelRole, "riskLevel"}, {ReclaimableTextRole, "reclaimableText"},
         {ProtectedSizeTextRole, "protectedSizeText"}, {UnknownSizeTextRole, "unknownSizeText"},
         {AccentIndexRole, "accentIndex"}, {SummaryRole, "summary"},
+        {OrphanConfidenceRole, "orphanConfidence"},
+        {OrphanSummaryRole, "orphanSummary"},
+        {OrphanBlockingReasonsRole, "orphanBlockingReasons"},
         {DataGroupsRole, "dataGroups"},
         {EvidenceRole, "evidence"}
     };
@@ -349,6 +357,12 @@ QVariantMap ApplicationListModel::applicationMap(const ApplicationInfo &applicat
     map.insert(QStringLiteral("unknownSizeText"), formatSize(application.unknownSize));
     map.insert(QStringLiteral("accentIndex"), accentIndexFor(application.id));
     map.insert(QStringLiteral("summary"), application.summary);
+    map.insert(QStringLiteral("orphanConfidence"),
+               application.orphanAssessment.confidence);
+    map.insert(QStringLiteral("orphanSummary"),
+               application.orphanAssessment.summary);
+    map.insert(QStringLiteral("orphanBlockingReasons"),
+               application.orphanAssessment.blockingReasons);
     map.insert(QStringLiteral("dataGroups"), groupMaps(application));
     map.insert(QStringLiteral("evidence"), evidenceMaps(application));
     return map;

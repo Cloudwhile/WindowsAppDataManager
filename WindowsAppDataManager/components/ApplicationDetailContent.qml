@@ -8,6 +8,9 @@ Item {
 
     required property var application
     property bool paneMode: false
+    readonly property bool potentialOrphan: application.installState === 1
+    readonly property bool showOrphanAssessment: application.installState !== 0
+                                                 && application.orphanSummary.length > 0
 
     function collectionItem(collection, index) {
         if (!collection)
@@ -168,6 +171,57 @@ Item {
             ConfidenceIndicator {
                 width: parent.width
                 value: detail.application.confidence
+            }
+
+            ConfidenceIndicator {
+                width: parent.width
+                visible: detail.potentialOrphan
+                label: "残留判断置信度"
+                value: detail.application.orphanConfidence
+            }
+
+            Column {
+                width: parent.width
+                visible: detail.showOrphanAssessment
+                spacing: 7
+
+                Text {
+                    width: parent.width
+                    text: detail.application.orphanSummary
+                    color: Theme.textSecondary
+                    font.pixelSize: 11
+                    lineHeight: 1.35
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: detail.application.orphanBlockingReasons
+
+                    delegate: RowLayout {
+                        id: orphanReason
+
+                        required property string modelData
+                        width: parent.width
+                        spacing: 7
+
+                        ThemedIcon {
+                            Layout.preferredWidth: 14
+                            Layout.preferredHeight: 14
+                            Layout.alignment: Qt.AlignTop
+                            source: Qt.resolvedUrl("../resources/Icons/TablerAlertSmall.svg")
+                            color: Theme.amberText
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: orphanReason.modelData
+                            color: Theme.textMuted
+                            font.pixelSize: 10
+                            lineHeight: 1.3
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
             }
 
             Repeater {

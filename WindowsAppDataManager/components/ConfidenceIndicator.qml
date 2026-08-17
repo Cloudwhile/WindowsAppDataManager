@@ -4,6 +4,7 @@ Item {
     id: indicator
 
     property int value: 0
+    property string label: "识别置信度"
 
     implicitHeight: 42
 
@@ -16,7 +17,7 @@ Item {
 
             Text {
                 width: parent.width - 58
-                text: "识别置信度"
+                text: indicator.label
                 color: Theme.textSecondary
                 font.pixelSize: 11
             }
