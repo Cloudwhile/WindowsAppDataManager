@@ -220,6 +220,16 @@ if(BUILD_TESTING)
     find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
     add_executable(wam_backend_tests
         tests/tst_backend.cpp
+    )
+    target_link_libraries(wam_backend_tests PRIVATE wam_backend Qt::Test)
+    add_test(NAME wam_backend_tests COMMAND wam_backend_tests)
+    set_tests_properties(wam_backend_tests PROPERTIES
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
+    )
+
+    add_executable(wam_qml_models_tests
+        tests/tst_qml_models.cpp
         src/qmlmodels/ApplicationListModel.cpp
         src/qmlmodels/ApplicationListModel.h
         src/qmlmodels/ApplicationFilterModel.cpp
@@ -227,9 +237,14 @@ if(BUILD_TESTING)
         src/qmlmodels/ScanViewModel.cpp
         src/qmlmodels/ScanViewModel.h
     )
-    target_link_libraries(wam_backend_tests PRIVATE wam_backend Qt::Gui Qt::Qml Qt::Test)
-    add_test(NAME wam_backend_tests COMMAND wam_backend_tests)
-    set_tests_properties(wam_backend_tests PROPERTIES
+    target_link_libraries(wam_qml_models_tests PRIVATE
+        wam_backend
+        Qt::Gui
+        Qt::Qml
+        Qt::Test
+    )
+    add_test(NAME wam_qml_models_tests COMMAND wam_qml_models_tests)
+    set_tests_properties(wam_qml_models_tests PROPERTIES
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
     )
