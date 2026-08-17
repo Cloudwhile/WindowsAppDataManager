@@ -2,6 +2,7 @@
 
 #include "../../platform/windows/filesystem/ReparsePoint.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 
 #include <algorithm>
@@ -63,6 +64,62 @@ void appendIssue(DirectoryScanStats &stats,
     stats.issues.append(std::move(issue));
 }
 
+void appendReparseIssue(DirectoryScanStats &stats,
+                        const std::filesystem::path &path)
+{
+    if (stats.issues.size() >= maximumReportedIssues)
+        return;
+    stats.issues.append({
+        ScanErrorCode::PathUnavailable,
+        QStringLiteral("已跳过重解析点目录或文件"),
+        QStringLiteral("FILE_ATTRIBUTE_REPARSE_POINT"),
+        pathToQString(path)
+    });
+}
+
+void appendChangedDuringScanIssue(DirectoryScanStats &stats,
+                                  const std::filesystem::path &path)
+{
+    if (stats.issues.size() >= maximumReportedIssues)
+        return;
+    stats.issues.append({
+        ScanErrorCode::IoError,
+        QStringLiteral("扫描期间目录内容发生变化"),
+        QStringLiteral("两次完整元数据快照的路径、大小或修改时间不一致"),
+        pathToQString(path)
+    });
+}
+
+struct SnapshotFingerprint {
+    QByteArray digest = QByteArray(32, '\0');
+
+    void add(const std::filesystem::path &relativePath,
+             std::uintmax_t size,
+             std::filesystem::file_time_type modified)
+    {
+        QByteArray value = pathToQString(relativePath.lexically_normal())
+                                   .toCaseFolded().toUtf8();
+        value.append('\0');
+        value.append(QByteArray::number(size));
+        value.append('\0');
+        value.append(QByteArray::number(modified.time_since_epoch().count()));
+        const QByteArray entryDigest = QCryptographicHash::hash(
+                value, QCryptographicHash::Sha256);
+        for (qsizetype index = 0; index < digest.size(); ++index)
+            digest[index] = static_cast<char>(digest.at(index) ^ entryDigest.at(index));
+    }
+
+    [[nodiscard]] bool operator==(const SnapshotFingerprint &other) const
+    {
+        return digest == other.digest;
+    }
+};
+
+struct ScanPassResult {
+    DirectoryScanStats stats;
+    SnapshotFingerprint fingerprint;
+};
+
 bool pathsEqual(const std::filesystem::path &left, const std::filesystem::path &right)
 {
 #ifdef _WIN32
@@ -73,44 +130,33 @@ bool pathsEqual(const std::filesystem::path &left, const std::filesystem::path &
 #endif
 }
 
-} // namespace
-
-DirectoryScanStats DirectoryScanner::scan(const QString &root,
-                                          const std::atomic_bool &cancelRequested,
-                                          const FileVisitor &visitor,
-                                          const StatusCallback &statusCallback,
-                                          const QStringList &excludedPaths) const
+ScanPassResult scanPass(
+        const std::filesystem::path &rootPath,
+        const std::atomic_bool &cancelRequested,
+        const DirectoryScanner::FileVisitor &visitor,
+        const DirectoryScanner::StatusCallback &statusCallback,
+        const QVector<std::filesystem::path> &exclusions)
 {
-    DirectoryScanStats stats;
-    const std::filesystem::path rootPath = stringToPath(root);
+    ScanPassResult result;
+    DirectoryScanStats &stats = result.stats;
 
     if (cancelRequested.load(std::memory_order_relaxed)) {
         stats.cancelled = true;
-        return stats;
+        return result;
     }
 
-    QVector<std::filesystem::path> exclusions;
-    exclusions.reserve(excludedPaths.size());
-    for (const QString &path : excludedPaths)
-        exclusions.append(stringToPath(path));
-
     if (platform::windows::isReparsePoint(rootPath)) {
-        ScanIssue issue;
-        issue.code = ScanErrorCode::PathUnavailable;
-        issue.message = QStringLiteral("已跳过重解析点目录");
-        issue.technicalDetail = QStringLiteral("FILE_ATTRIBUTE_REPARSE_POINT");
-        issue.path = root;
-        stats.issues.append(std::move(issue));
-        return stats;
+        appendReparseIssue(stats, rootPath);
+        return result;
     }
 
     std::error_code error;
     std::filesystem::recursive_directory_iterator iterator(
-            rootPath, std::filesystem::directory_options::skip_permission_denied, error);
+            rootPath, std::filesystem::directory_options::none, error);
     const std::filesystem::recursive_directory_iterator end;
     if (error) {
         appendIssue(stats, rootPath, error);
-        return stats;
+        return result;
     }
 
     while (iterator != end) {
@@ -121,9 +167,8 @@ DirectoryScanStats DirectoryScanner::scan(const QString &root,
 
         const std::filesystem::directory_entry entry = *iterator;
         const std::filesystem::path path = entry.path();
-
-        const bool excluded = std::any_of(exclusions.cbegin(), exclusions.cend(),
-                                          [&path](const auto &candidate) {
+        const bool excluded = std::any_of(
+                exclusions.cbegin(), exclusions.cend(), [&path](const auto &candidate) {
             return pathsEqual(path, candidate);
         });
         if (excluded) {
@@ -132,8 +177,10 @@ DirectoryScanStats DirectoryScanner::scan(const QString &root,
                 iterator.disable_recursion_pending();
         }
 
-        const bool reparsePoint = platform::windows::isReparsePoint(path);
+        const bool reparsePoint = !excluded
+                && platform::windows::isReparsePoint(path);
         if (reparsePoint) {
+            appendReparseIssue(stats, path);
             error.clear();
             if (entry.is_directory(error) && !error)
                 iterator.disable_recursion_pending();
@@ -155,6 +202,10 @@ DirectoryScanStats DirectoryScanner::scan(const QString &root,
                 ++stats.fileCount;
                 stats.latestModifiedMilliseconds = std::max(
                         stats.latestModifiedMilliseconds, modifiedMilliseconds);
+                if (!error) {
+                    result.fingerprint.add(
+                            path.lexically_relative(rootPath), rawSize, modified);
+                }
                 if (visitor)
                     visitor(path.lexically_relative(rootPath), size, modifiedMilliseconds);
 
@@ -170,11 +221,49 @@ DirectoryScanStats DirectoryScanner::scan(const QString &root,
         iterator.increment(error);
         if (error) {
             appendIssue(stats, path, error);
-            error.clear();
+            break;
         }
     }
 
-    return stats;
+    return result;
+}
+
+} // namespace
+
+DirectoryScanStats DirectoryScanner::scan(const QString &root,
+                                          const std::atomic_bool &cancelRequested,
+                                          const FileVisitor &visitor,
+                                          const StatusCallback &statusCallback,
+                                          const QStringList &excludedPaths,
+                                          bool verifyStability) const
+{
+    const std::filesystem::path rootPath = stringToPath(root);
+
+    QVector<std::filesystem::path> exclusions;
+    exclusions.reserve(excludedPaths.size());
+    for (const QString &path : excludedPaths)
+        exclusions.append(stringToPath(path));
+
+    ScanPassResult first = scanPass(
+            rootPath, cancelRequested, visitor, statusCallback, exclusions);
+    if (!verifyStability || first.stats.cancelled || !first.stats.issues.isEmpty())
+        return first.stats;
+
+    const ScanPassResult verification = scanPass(
+            rootPath, cancelRequested, {}, {}, exclusions);
+    if (verification.stats.cancelled)
+        first.stats.cancelled = true;
+    first.stats.issues += verification.stats.issues;
+    if (!first.stats.cancelled && verification.stats.issues.isEmpty()) {
+        if (first.stats.fileCount != verification.stats.fileCount
+                || first.stats.totalSize != verification.stats.totalSize
+                || !(first.fingerprint == verification.fingerprint)) {
+            appendChangedDuringScanIssue(first.stats, rootPath);
+        } else {
+            first.stats.stabilityVerified = true;
+        }
+    }
+    return first.stats;
 }
 
 } // namespace wam::core

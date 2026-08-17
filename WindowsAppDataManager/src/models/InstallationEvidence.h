@@ -18,6 +18,12 @@ enum class ExecutablePathState {
     Unavailable
 };
 
+enum class InstallationPathState {
+    Present,
+    Missing,
+    Unavailable
+};
+
 enum class VersionMetadataState {
     Available,
     Missing,
@@ -44,6 +50,12 @@ struct AppxInstallationRecord {
     QString packageFamilyName;
     QString displayName;
     QString installPath;
+};
+
+struct InstallationPathEvidenceRecord {
+    QString path;
+    InstallationPathState state = InstallationPathState::Unavailable;
+    bool directory = false;
 };
 
 struct ExecutableEvidenceRecord {
@@ -75,6 +87,7 @@ struct InstallationEvidenceSourceSnapshot {
 struct InstallationEvidenceSnapshot {
     InstallationEvidenceSourceSnapshot<RegistryInstallationRecord> registry;
     InstallationEvidenceSourceSnapshot<AppxInstallationRecord> appx;
+    InstallationEvidenceSourceSnapshot<InstallationPathEvidenceRecord> installPaths;
     InstallationEvidenceSourceSnapshot<ExecutableEvidenceRecord> executable;
     InstallationEvidenceSourceSnapshot<RunningProcessEvidenceRecord> runningProcesses;
 };

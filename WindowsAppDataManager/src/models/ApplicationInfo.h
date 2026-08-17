@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace wam {
@@ -53,7 +54,8 @@ enum class EvidenceSource {
     Publisher,
     Folder,
     Rule,
-    RunningProcess
+    RunningProcess,
+    InstallPath
 };
 
 enum class EvidenceStatus {
@@ -70,6 +72,16 @@ struct EvidenceInfo {
     EvidenceSource source = EvidenceSource::Folder;
     EvidenceStatus status = EvidenceStatus::Unavailable;
     QString detail;
+};
+
+struct OrphanAssessment {
+    InstallState state = InstallState::Unknown;
+    int confidence = 0;
+    QString summary;
+    QStringList supportingEvidence;
+    QStringList blockingReasons;
+    QDateTime assessedAt;
+    bool evaluated = false;
 };
 
 struct DataGroupInfo {
@@ -102,6 +114,8 @@ struct ApplicationInfo {
     QDateTime lastModified;
     InstallState installState = InstallState::Unknown;
     int confidence = 0;
+    bool scanComplete = false;
+    OrphanAssessment orphanAssessment;
     RiskLevel risk = RiskLevel::Unknown;
     QString summary;
 

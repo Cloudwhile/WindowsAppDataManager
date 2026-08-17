@@ -3,6 +3,7 @@
 #include "../core/rules/RulePathResolver.h"
 #include "../platform/windows/appx/AppxPackageCatalog.h"
 #include "../platform/windows/filesystem/ExecutableMetadataReader.h"
+#include "../platform/windows/filesystem/PathPresenceReader.h"
 #include "../platform/windows/process/RunningProcessCatalog.h"
 #include "../platform/windows/registry/InstalledApplicationRegistry.h"
 #include "../platform/windows/security/AuthenticodeVerifier.h"
@@ -161,6 +162,90 @@ void collectRunningProcessEvidence(InstallationEvidenceSnapshot &snapshot)
                         .arg(context,
                              QString::number(issue.nativeError),
                              issue.technicalDetail));
+    }
+}
+
+InstallationPathState installationPathState(
+        platform::windows::PathPresenceState state)
+{
+    switch (state) {
+    case platform::windows::PathPresenceState::Present:
+        return InstallationPathState::Present;
+    case platform::windows::PathPresenceState::Missing:
+        return InstallationPathState::Missing;
+    case platform::windows::PathPresenceState::Unavailable:
+        return InstallationPathState::Unavailable;
+    }
+    return InstallationPathState::Unavailable;
+}
+
+void collectInstallPathEvidence(const core::rules::RuleCatalog &catalog,
+                                InstallationEvidenceSnapshot &snapshot)
+{
+    snapshot.installPaths.availability = InstallationEvidenceAvailability::Complete;
+    QSet<QString> collectedPaths;
+    bool incomplete = false;
+
+    for (const ApplicationRule &rule : catalog.applications()) {
+        const core::rules::RulePathResolution resolution =
+                core::rules::resolveRulePath(rule.installPath);
+        if (!resolution.isResolved()) {
+            const QString claimKey = core::rules::normalizedRulePathClaim(
+                    rule.installPath);
+            if (collectedPaths.contains(claimKey))
+                continue;
+            collectedPaths.insert(claimKey);
+            snapshot.installPaths.records.append({
+                rule.installPath, InstallationPathState::Unavailable, false
+            });
+            snapshot.installPaths.issues.append(
+                    QStringLiteral("%1：%2")
+                            .arg(rule.installPath,
+                                 resolution.detail.isEmpty()
+                                         ? QStringLiteral("安装路径当前无法解析")
+                                         : resolution.detail));
+            incomplete = true;
+            continue;
+        }
+
+        const QString key = core::rules::normalizedPathKey(resolution.path);
+        if (collectedPaths.contains(key))
+            continue;
+        collectedPaths.insert(key);
+
+        const platform::windows::PathPresenceResult presence =
+                platform::windows::PathPresenceReader::read(resolution.path);
+        const InstallationPathState state = installationPathState(presence.state);
+        snapshot.installPaths.records.append({resolution.path, state,
+                                              presence.directory});
+        if (!presence.supported || state == InstallationPathState::Unavailable) {
+            incomplete = true;
+            snapshot.installPaths.issues.append(
+                    QStringLiteral("%1：%2")
+                            .arg(resolution.path,
+                                 presence.technicalDetail.isEmpty()
+                                         ? QStringLiteral("安装路径状态当前不可用")
+                                         : presence.technicalDetail));
+        } else if (state == InstallationPathState::Present && !presence.directory) {
+            incomplete = true;
+            snapshot.installPaths.issues.append(
+                    QStringLiteral("%1：安装路径存在，但目标不是目录")
+                            .arg(resolution.path));
+        }
+    }
+
+    const bool observedState = std::any_of(
+            snapshot.installPaths.records.cbegin(),
+            snapshot.installPaths.records.cend(),
+            [](const InstallationPathEvidenceRecord &record) {
+        return record.state != InstallationPathState::Unavailable;
+    });
+    if (!observedState && !snapshot.installPaths.records.isEmpty()) {
+        snapshot.installPaths.availability =
+                InstallationEvidenceAvailability::Unavailable;
+    } else if (incomplete) {
+        snapshot.installPaths.availability =
+                InstallationEvidenceAvailability::Partial;
     }
 }
 
@@ -380,6 +465,7 @@ InstallationEvidenceSnapshot InstallationEvidenceCollector::collect(
     InstallationEvidenceSnapshot snapshot;
     collectRegistryEvidence(snapshot);
     collectAppxEvidence(snapshot);
+    collectInstallPathEvidence(catalog, snapshot);
     collectRunningProcessEvidence(snapshot);
     collectExecutableEvidence(catalog, snapshot);
 
@@ -389,6 +475,9 @@ InstallationEvidenceSnapshot InstallationEvidenceCollector::collect(
     logIssues(QStringLiteral("AppX / MSIX"),
               snapshot.appx.availability,
               snapshot.appx.issues);
+    logIssues(QStringLiteral("Install path"),
+              snapshot.installPaths.availability,
+              snapshot.installPaths.issues);
     logIssues(QStringLiteral("Running process"),
               snapshot.runningProcesses.availability,
               snapshot.runningProcesses.issues);

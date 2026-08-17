@@ -14,6 +14,8 @@ struct ScanTarget {
     QStringList excludedPaths;
     QVector<RuleEntry> classificationRules;
     QString ruleSource;
+    RuleLocationOwnership locationOwnership = RuleLocationOwnership::Shared;
+    bool locationDiscoveryComplete = true;
 };
 
 class AppResolver final {

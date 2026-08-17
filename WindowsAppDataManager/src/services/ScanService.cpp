@@ -4,6 +4,7 @@
 #include "../core/classifier/DataClassifier.h"
 #include "../core/classifier/RiskAssessment.h"
 #include "../core/resolver/AppResolver.h"
+#include "../core/resolver/OrphanDetector.h"
 #include "../core/scanner/DirectoryScanner.h"
 #include "../platform/windows/filesystem/AppDataPaths.h"
 
@@ -69,6 +70,7 @@ void mergeApplication(ApplicationInfo &application, ApplicationInfo incoming)
     application.reclaimableSize += incoming.reclaimableSize;
     application.protectedSize += incoming.protectedSize;
     application.unknownSize += incoming.unknownSize;
+    application.scanComplete = application.scanComplete && incoming.scanComplete;
     if (incoming.lastModified > application.lastModified)
         application.lastModified = incoming.lastModified;
     application.confidence = std::max(application.confidence, incoming.confidence);
@@ -142,10 +144,18 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
         ++group.fileCount;
     };
 
+    const bool verifyStability = target.locationOwnership
+                    == RuleLocationOwnership::Exclusive
+            && target.application.installState != InstallState::Installed
+            && target.locationDiscoveryComplete;
     const core::DirectoryScanStats stats = scanner.scan(
-            target.path, cancelRequested, visitor, statusCallback, target.excludedPaths);
+            target.path, cancelRequested, visitor, statusCallback,
+            target.excludedPaths, verifyStability);
     application.totalSize = stats.totalSize;
     application.fileCount = stats.fileCount;
+    application.scanComplete = target.locationDiscoveryComplete
+            && !stats.cancelled && stats.issues.isEmpty()
+            && (!verifyStability || stats.stabilityVerified);
     if (stats.latestModifiedMilliseconds > 0) {
         application.lastModified = QDateTime::fromMSecsSinceEpoch(
                 stats.latestModifiedMilliseconds);
@@ -193,6 +203,7 @@ ScanResult performScan(const QStringList &roots,
     core::AppResolver resolver(catalog, InstallationEvidenceCollector::collect(catalog));
     const QVector<core::ScanTarget> targets = resolver.discoverTargets(roots);
     QHash<QString, int> applicationIndexes;
+    QHash<QString, bool> exclusiveLocations;
 
     for (qsizetype targetIndex = 0; targetIndex < targets.size(); ++targetIndex) {
         if (cancelRequested->load(std::memory_order_relaxed)) {
@@ -219,22 +230,34 @@ ScanResult performScan(const QStringList &roots,
         auto existing = applicationIndexes.constFind(application.id);
         if (existing == applicationIndexes.cend()) {
             applicationIndexes.insert(application.id, result.applications.size());
+            exclusiveLocations.insert(
+                    application.id,
+                    target.locationOwnership == RuleLocationOwnership::Exclusive);
             result.applications.append(std::move(application));
         } else {
+            exclusiveLocations[application.id] = exclusiveLocations.value(application.id)
+                    && target.locationOwnership == RuleLocationOwnership::Exclusive;
             mergeApplication(result.applications[*existing], std::move(application));
         }
     }
 
+    result.cancelled = result.cancelled
+            || cancelRequested->load(std::memory_order_relaxed);
     for (ApplicationInfo &application : result.applications) {
         application.risk = core::applicationRisk(application);
+        core::OrphanDetectionContext orphanContext;
+        orphanContext.exclusiveLocations = exclusiveLocations.value(application.id, false);
+        orphanContext.scanCompleted = !result.cancelled;
+        orphanContext.assessedAt = QDateTime::currentDateTimeUtc();
+        application.orphanAssessment = core::OrphanDetector::assess(
+                application, orphanContext);
+        application.installState = application.orphanAssessment.state;
         result.totalSize += application.totalSize;
         result.fileCount += application.fileCount;
     }
     std::sort(result.applications.begin(), result.applications.end(),
               [](const auto &left, const auto &right) { return left.totalSize > right.totalSize; });
 
-    result.cancelled = result.cancelled
-            || cancelRequested->load(std::memory_order_relaxed);
     result.elapsedMilliseconds = timer.elapsed();
     progressCallback(result.cancelled ? 0 : 100, QString());
     return result;

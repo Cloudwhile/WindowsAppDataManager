@@ -15,6 +15,7 @@ struct DirectoryScanStats {
     qint64 latestModifiedMilliseconds = 0;
     QVector<ScanIssue> issues;
     bool cancelled = false;
+    bool stabilityVerified = false;
 };
 
 class DirectoryScanner final {
@@ -29,7 +30,8 @@ public:
                                           const std::atomic_bool &cancelRequested,
                                           const FileVisitor &visitor,
                                           const StatusCallback &statusCallback,
-                                          const QStringList &excludedPaths = {}) const;
+                                          const QStringList &excludedPaths = {},
+                                          bool verifyStability = false) const;
 };
 
 } // namespace wam::core

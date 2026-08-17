@@ -28,6 +28,8 @@ set(BACKEND_SOURCES
     src/core/classifier/RiskAssessment.h
     src/core/resolver/AppResolver.cpp
     src/core/resolver/AppResolver.h
+    src/core/resolver/OrphanDetector.cpp
+    src/core/resolver/OrphanDetector.h
     src/core/rules/IdentifierNormalization.h
     src/core/rules/RuleCatalog.cpp
     src/core/rules/RuleCatalog.h
@@ -49,6 +51,8 @@ set(BACKEND_SOURCES
     src/platform/windows/filesystem/ExecutableFileIdentity.h
     src/platform/windows/filesystem/ExecutableMetadataReader.cpp
     src/platform/windows/filesystem/ExecutableMetadataReader.h
+    src/platform/windows/filesystem/PathPresenceReader.cpp
+    src/platform/windows/filesystem/PathPresenceReader.h
     src/platform/windows/filesystem/ReparsePoint.cpp
     src/platform/windows/filesystem/ReparsePoint.h
     src/platform/windows/process/RunningProcessCatalog.cpp
@@ -277,6 +281,16 @@ if(BUILD_TESTING)
     target_link_libraries(wam_executable_platform_tests PRIVATE wam_backend Qt::Test)
     add_test(NAME wam_executable_platform_tests COMMAND wam_executable_platform_tests)
     set_tests_properties(wam_executable_platform_tests PROPERTIES
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
+    )
+
+    add_executable(wam_orphan_detection_tests
+        tests/tst_orphan_detection.cpp
+    )
+    target_link_libraries(wam_orphan_detection_tests PRIVATE wam_backend Qt::Test)
+    add_test(NAME wam_orphan_detection_tests COMMAND wam_orphan_detection_tests)
+    set_tests_properties(wam_orphan_detection_tests PROPERTIES
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
     )

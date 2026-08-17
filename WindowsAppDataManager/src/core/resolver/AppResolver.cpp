@@ -1,10 +1,12 @@
 #include "AppResolver.h"
 #include "../rules/IdentifierNormalization.h"
 #include "../rules/RulePathResolver.h"
+#include "../../platform/windows/filesystem/PathPresenceReader.h"
 
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QSet>
 
 #include <algorithm>
@@ -271,6 +273,11 @@ struct RunningProcessMatch {
     QString detail;
 };
 
+struct InstallationPathMatch {
+    EvidenceStatus status = EvidenceStatus::Unavailable;
+    QString detail;
+};
+
 bool hasMetadataIdentifiers(const RuleIdentifiers &identifiers)
 {
     return !identifiers.executableProductNames.isEmpty()
@@ -518,6 +525,54 @@ RunningProcessMatch matchRunningProcessEvidence(
             QStringLiteral("运行进程证据状态未知")};
 }
 
+InstallationPathMatch matchInstallPathEvidence(
+        const QString &expectedPath,
+        const InstallationEvidenceSourceSnapshot<InstallationPathEvidenceRecord> &snapshot)
+{
+    const QString expectedKey = rules::normalizedPathKey(expectedPath);
+    if (expectedKey.isEmpty()) {
+        return {EvidenceStatus::Unavailable,
+                QStringLiteral("规则安装路径当前不可解析")};
+    }
+
+    QVector<const InstallationPathEvidenceRecord *> matches;
+    for (const InstallationPathEvidenceRecord &record : snapshot.records) {
+        const QString recordKey = rules::normalizedPathKey(record.path);
+        if (!recordKey.isEmpty() && recordKey == expectedKey)
+            matches.append(&record);
+    }
+    if (matches.size() > 1) {
+        return {EvidenceStatus::Ambiguous,
+                QStringLiteral("安装路径证据包含 %1 条相同路径记录")
+                        .arg(matches.size())};
+    }
+    if (matches.isEmpty()) {
+        if (snapshot.availability == InstallationEvidenceAvailability::Unavailable) {
+            return {EvidenceStatus::Unavailable,
+                    QStringLiteral("安装路径证据当前不可用")};
+        }
+        return {EvidenceStatus::Incomplete,
+                QStringLiteral("安装路径证据快照缺少该规则路径")};
+    }
+
+    const InstallationPathEvidenceRecord &record = *matches.constFirst();
+    switch (record.state) {
+    case InstallationPathState::Present:
+        return {EvidenceStatus::Matched,
+                record.directory
+                        ? QStringLiteral("规则声明的安装目录仍然存在")
+                        : QStringLiteral("规则声明的安装路径仍然存在，但目标不是目录")};
+    case InstallationPathState::Missing:
+        return {EvidenceStatus::NotFound,
+                QStringLiteral("未找到规则声明的安装路径")};
+    case InstallationPathState::Unavailable:
+        return {EvidenceStatus::Unavailable,
+                QStringLiteral("无法读取规则声明的安装路径状态")};
+    }
+    return {EvidenceStatus::Unavailable,
+            QStringLiteral("安装路径证据状态未知")};
+}
+
 QString rootScopeName(const QString &root)
 {
     const QString name = QFileInfo(root).fileName().toCaseFolded();
@@ -598,6 +653,8 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
             rule, application.executablePath, evidence.executable);
     const RunningProcessMatch runningProcessMatch = matchRunningProcessEvidence(
             application.executablePath, evidence.runningProcesses);
+    const InstallationPathMatch installPathMatch = matchInstallPathEvidence(
+            application.installPath, evidence.installPaths);
     const InstallationMatch registryMatch = matchInstallationRecords(
             rule.identifiers.registryDisplayNames,
             rule.identifiers.registryPublishers,
@@ -679,6 +736,11 @@ ApplicationInfo knownApplicationInfo(const ApplicationRule &rule,
         EvidenceSource::RunningProcess,
         runningProcessMatch.status,
         runningProcessMatch.detail
+    });
+    application.evidence.append({
+        EvidenceSource::InstallPath,
+        installPathMatch.status,
+        installPathMatch.detail
     });
 
     if (registryMatch.status != InstallationMatchStatus::NotConfigured) {
@@ -793,12 +855,52 @@ AppResolver::AppResolver(rules::RuleCatalog catalog,
 QVector<ScanTarget> AppResolver::discoverTargets(const QStringList &roots) const
 {
     QVector<ScanTarget> targets;
+    QHash<QString, bool> locationDiscoveryComplete;
+    QHash<QString, QStringList> locationDiscoveryIssues;
+    QSet<int> suppliedScopes;
+    for (const QString &root : roots) {
+        const auto scope = rootRuleScope(root);
+        if (scope)
+            suppliedScopes.insert(static_cast<int>(*scope));
+    }
+    for (const ApplicationRule &rule : m_catalog.applications()) {
+        locationDiscoveryComplete.insert(rule.id, true);
+        for (const RuleLocation &location : rule.locations) {
+            if (suppliedScopes.contains(static_cast<int>(location.scope)))
+                continue;
+            locationDiscoveryComplete[rule.id] = false;
+            locationDiscoveryIssues[rule.id].append(
+                    QStringLiteral("未提供 %1 AppData 扫描根目录")
+                            .arg(scopeName(location.scope)));
+        }
+    }
+
     for (const QString &root : roots) {
         const QString scope = rootScopeName(root);
         const std::optional<RuleScope> ruleScope = rootRuleScope(root);
         const QDir rootDirectory(root);
-        if (!rootDirectory.exists())
+        const platform::windows::PathPresenceResult rootPresence =
+                platform::windows::PathPresenceReader::read(root);
+        if (rootPresence.state != platform::windows::PathPresenceState::Present
+                || !rootPresence.directory) {
+            if (ruleScope
+                    && rootPresence.state != platform::windows::PathPresenceState::Missing) {
+                for (const ApplicationRule &rule : m_catalog.applications()) {
+                    const bool usesScope = std::any_of(
+                            rule.locations.cbegin(), rule.locations.cend(),
+                            [ruleScope](const RuleLocation &location) {
+                        return location.scope == *ruleScope;
+                    });
+                    if (!usesScope)
+                        continue;
+                    locationDiscoveryComplete[rule.id] = false;
+                    locationDiscoveryIssues[rule.id].append(
+                            QStringLiteral("无法确认 %1 AppData 根目录状态：%2")
+                                    .arg(scope, QDir::toNativeSeparators(root)));
+                }
+            }
             continue;
+        }
 
         QSet<QString> knownPaths;
         if (ruleScope) {
@@ -809,15 +911,30 @@ QVector<ScanTarget> AppResolver::discoverTargets(const QStringList &roots) const
 
                     const QString path = QDir::cleanPath(
                             rootDirectory.filePath(location.relativePath));
-                    if (!QFileInfo(path).isDir())
+                    const platform::windows::PathPresenceResult presence =
+                            platform::windows::PathPresenceReader::read(path);
+                    if (presence.state == platform::windows::PathPresenceState::Missing)
                         continue;
+                    if (presence.state != platform::windows::PathPresenceState::Present
+                            || !presence.directory) {
+                        locationDiscoveryComplete[rule.id] = false;
+                        locationDiscoveryIssues[rule.id].append(
+                                presence.state == platform::windows::PathPresenceState::Present
+                                        ? QStringLiteral("规则数据位置存在，但目标不是目录：%1")
+                                                  .arg(QDir::toNativeSeparators(path))
+                                        : QStringLiteral("无法确认规则数据位置状态：%1")
+                                                  .arg(QDir::toNativeSeparators(path)));
+                        continue;
+                    }
 
                     targets.append({
                         knownApplicationInfo(rule, location, path, m_evidence),
                         path,
                         {},
                         rule.entries,
-                        ruleSource(rule)
+                        ruleSource(rule),
+                        location.ownership,
+                        true
                     });
                     const QString knownPath = normalizedScanPathKey(path);
                     if (!knownPath.isEmpty())
@@ -844,7 +961,22 @@ QVector<ScanTarget> AppResolver::discoverTargets(const QStringList &roots) const
                 }
             }
             exclusions.sort(Qt::CaseInsensitive);
-            targets.append({unknownApplicationInfo(scope, directory), path, exclusions, {}, {}});
+            targets.append({unknownApplicationInfo(scope, directory), path, exclusions, {}, {},
+                            RuleLocationOwnership::Shared, true});
+        }
+    }
+
+    for (ScanTarget &target : targets) {
+        const auto complete = locationDiscoveryComplete.constFind(target.application.id);
+        if (complete == locationDiscoveryComplete.cend())
+            continue;
+        target.locationDiscoveryComplete = *complete;
+        for (const QString &detail : locationDiscoveryIssues.value(target.application.id)) {
+            target.application.evidence.append({
+                EvidenceSource::Folder,
+                EvidenceStatus::Unavailable,
+                detail
+            });
         }
     }
 
