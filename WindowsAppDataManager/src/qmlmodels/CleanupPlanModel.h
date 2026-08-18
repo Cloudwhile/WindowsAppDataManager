@@ -8,7 +8,7 @@
 
 namespace wam::qmlmodels {
 
-class CleanupPlanModel final : public QAbstractListModel {
+class CleanupPlanModel : public QAbstractListModel {
     Q_OBJECT
     QML_NAMED_ELEMENT(CleanupPlanModel)
     QML_UNCREATABLE("由 CleanupViewModel 提供")

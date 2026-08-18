@@ -9,7 +9,7 @@
 
 namespace wam::qmlmodels {
 
-class CleanupViewModel final : public QObject {
+class CleanupViewModel : public QObject {
     Q_OBJECT
     QML_NAMED_ELEMENT(CleanupViewModel)
     QML_UNCREATABLE("由 Backend 提供")
