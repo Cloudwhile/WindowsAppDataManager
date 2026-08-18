@@ -96,6 +96,33 @@ struct DataGroupInfo {
     QString ruleSource;
 };
 
+struct CleanupCandidateInfo {
+    QString id;
+    QString applicationId;
+    QString applicationName;
+    QString applicationRoot;
+    QString executablePath;
+    QString path;
+    QString ruleEntryId;
+    QString ruleSource;
+    DataCategory category = DataCategory::Unknown;
+    RiskLevel risk = RiskLevel::Unknown;
+    RebuildableState rebuildable = RebuildableState::Unknown;
+    QString impact;
+    quint64 size = 0;
+    quint64 fileCount = 0;
+    QString metadataFingerprint;
+    QDateTime lastModified;
+    quint64 volumeSerialNumber = 0;
+    quint64 fileIndex = 0;
+    bool identityValid = false;
+    bool directory = false;
+    bool verifiedRule = false;
+    bool exclusiveLocation = false;
+    bool scanComplete = false;
+    bool containsUnsafeData = false;
+};
+
 struct ApplicationInfo {
     QString id;
     QString name;
@@ -121,9 +148,11 @@ struct ApplicationInfo {
 
     QVector<DataGroupInfo> dataGroups;
     QVector<EvidenceInfo> evidence;
+    QVector<CleanupCandidateInfo> cleanupCandidates;
 };
 
 } // namespace wam
 
 Q_DECLARE_METATYPE(wam::ApplicationInfo)
+Q_DECLARE_METATYPE(wam::CleanupCandidateInfo)
 Q_DECLARE_METATYPE(QVector<wam::ApplicationInfo>)

@@ -14,6 +14,8 @@ struct Classification {
     RebuildableState rebuildable = RebuildableState::Unknown;
     QString impact;
     QString ruleSource;
+    QString matchedPath;
+    bool verifiedRule = false;
 };
 
 class DataClassifier final {

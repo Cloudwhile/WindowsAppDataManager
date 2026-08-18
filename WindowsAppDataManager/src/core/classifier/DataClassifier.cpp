@@ -90,10 +90,13 @@ Classification makeClassification(QString id,
                                   RiskLevel risk,
                                   RebuildableState rebuildable,
                                   QString impact,
-                                  QString ruleSource)
+                                  QString ruleSource,
+                                  QString matchedPath = {},
+                                  bool verifiedRule = false)
 {
     return {std::move(id), category, risk, rebuildable,
-            std::move(impact), std::move(ruleSource)};
+            std::move(impact), std::move(ruleSource),
+            std::move(matchedPath), verifiedRule};
 }
 
 std::optional<Classification> sensitiveClassification(
@@ -159,7 +162,7 @@ std::optional<Classification> applicationRuleClassification(
             ? QStringLiteral("应用规则 / %1").arg(bestMatch->id) : source;
     return makeClassification(bestMatch->id, bestMatch->category, bestMatch->risk,
                               bestMatch->rebuildable, bestMatch->impact,
-                              effectiveSource);
+                              effectiveSource, bestMatch->path, true);
 }
 
 Classification heuristicClassification(const QStringList &pathComponents,

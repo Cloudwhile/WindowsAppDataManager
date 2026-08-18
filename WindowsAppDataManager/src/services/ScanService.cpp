@@ -6,8 +6,11 @@
 #include "../core/resolver/AppResolver.h"
 #include "../core/resolver/OrphanDetector.h"
 #include "../core/scanner/DirectoryScanner.h"
+#include "../core/scanner/MetadataFingerprint.h"
 #include "../platform/windows/filesystem/AppDataPaths.h"
+#include "../platform/windows/filesystem/StablePathIdentity.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -45,6 +48,94 @@ QString pathToQString(const std::filesystem::path &path)
 #else
     return QString::fromStdString(path.string());
 #endif
+}
+
+QString normalizedRelativePath(QString path)
+{
+    path = QDir::fromNativeSeparators(path).trimmed().toCaseFolded();
+    while (path.startsWith(QStringLiteral("./")))
+        path.remove(0, 2);
+    while (path.endsWith(QLatin1Char('/')))
+        path.chop(1);
+    return path;
+}
+
+bool relativePathContains(const QString &path, const QString &root)
+{
+    return !root.isEmpty()
+            && (path == root || path.startsWith(root + QLatin1Char('/')));
+}
+
+QString relativeToCandidate(const QString &path, const QString &candidateRoot)
+{
+    if (path == candidateRoot)
+        return QFileInfo(path).fileName();
+    return path.sliced(candidateRoot.size() + 1);
+}
+
+QString cleanupCandidateId(const QString &applicationId, const QString &path)
+{
+    QString normalized = QDir::cleanPath(QDir::fromNativeSeparators(path));
+#ifdef Q_OS_WIN
+    normalized = normalized.toCaseFolded();
+#endif
+    const QByteArray digest = QCryptographicHash::hash(
+            (applicationId + QLatin1Char('\0') + normalized).toUtf8(),
+            QCryptographicHash::Sha256).toHex().left(20);
+    return QStringLiteral("%1-%2").arg(applicationId, QString::fromLatin1(digest));
+}
+
+struct CandidateAccumulator {
+    CleanupCandidateInfo candidate;
+    QString normalizedEntryPath;
+    core::MetadataFingerprint fingerprint;
+};
+
+QVector<CandidateAccumulator> cleanupCandidateAccumulators(
+        const core::ScanTarget &target)
+{
+    QVector<CandidateAccumulator> result;
+    if (!target.ruleSource.startsWith(QStringLiteral("内置规则 / ")))
+        return result;
+
+    const QString normalizedRoot = QDir::cleanPath(
+            QDir::fromNativeSeparators(target.path));
+    for (const RuleEntry &entry : target.classificationRules) {
+        if (entry.risk != RiskLevel::Safe
+                || entry.rebuildable != RebuildableState::Yes) {
+            continue;
+        }
+
+        const QString entryPath = normalizedRelativePath(entry.path);
+        if (entryPath.isEmpty())
+            continue;
+        const QString candidatePath = QDir::cleanPath(
+                QDir(normalizedRoot).filePath(entry.path));
+        const QString normalizedCandidate = QDir::fromNativeSeparators(candidatePath);
+        const QString rootPrefix = QDir::fromNativeSeparators(normalizedRoot)
+                + QLatin1Char('/');
+        if (!normalizedCandidate.startsWith(rootPrefix, Qt::CaseInsensitive))
+            continue;
+
+        CleanupCandidateInfo candidate;
+        candidate.id = cleanupCandidateId(target.application.id, candidatePath);
+        candidate.applicationId = target.application.id;
+        candidate.applicationName = target.application.name;
+        candidate.applicationRoot = QDir::toNativeSeparators(normalizedRoot);
+        candidate.executablePath = target.application.executablePath;
+        candidate.path = QDir::toNativeSeparators(candidatePath);
+        candidate.ruleEntryId = entry.id;
+        candidate.ruleSource = target.ruleSource;
+        candidate.category = entry.category;
+        candidate.risk = entry.risk;
+        candidate.rebuildable = entry.rebuildable;
+        candidate.impact = entry.impact;
+        candidate.verifiedRule = true;
+        candidate.exclusiveLocation = target.locationOwnership
+                == RuleLocationOwnership::Exclusive;
+        result.append({std::move(candidate), entryPath, {}});
+    }
+    return result;
 }
 
 void mergeDataGroup(QVector<DataGroupInfo> &groups, const DataGroupInfo &incoming)
@@ -97,6 +188,24 @@ void mergeApplication(ApplicationInfo &application, ApplicationInfo incoming)
         if (!alreadyPresent)
             application.evidence.append(evidence);
     }
+
+    for (CleanupCandidateInfo &candidate : incoming.cleanupCandidates) {
+        const auto existing = std::find_if(
+                application.cleanupCandidates.begin(),
+                application.cleanupCandidates.end(),
+                [&candidate](const CleanupCandidateInfo &current) {
+            return current.id == candidate.id;
+        });
+        if (existing == application.cleanupCandidates.end()) {
+            application.cleanupCandidates.append(std::move(candidate));
+            continue;
+        }
+
+        existing->scanComplete = existing->scanComplete && candidate.scanComplete;
+        existing->containsUnsafeData = existing->containsUnsafeData
+                || candidate.containsUnsafeData
+                || existing->metadataFingerprint != candidate.metadataFingerprint;
+    }
 }
 
 ApplicationInfo scanTarget(const core::ScanTarget &target,
@@ -108,10 +217,12 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
     core::DirectoryScanner scanner;
     core::DataClassifier classifier;
     QHash<QString, int> groupIndexes;
+    QVector<CandidateAccumulator> candidateAccumulators =
+            cleanupCandidateAccumulators(target);
 
     const auto visitor = [&](const std::filesystem::path &relativePath,
                              quint64 size,
-                             qint64) {
+                             qint64 modifiedMilliseconds) {
         core::Classification classification = classifier.classify(
                 relativePath, target.classificationRules, target.ruleSource);
         if (application.confidence < 50) {
@@ -120,6 +231,35 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
             classification.impact = QStringLiteral(
                     "目录名称提示了可能的数据类型，但应用归属证据不足，不能据此处理。");
             classification.ruleSource = QStringLiteral("启发式 / 低置信度归属");
+            classification.matchedPath.clear();
+            classification.verifiedRule = false;
+        }
+
+        const QString normalizedFilePath = normalizedRelativePath(
+                pathToQString(relativePath));
+        const QString normalizedMatchedPath = normalizedRelativePath(
+                classification.matchedPath);
+        for (CandidateAccumulator &accumulator : candidateAccumulators) {
+            if (!relativePathContains(normalizedFilePath,
+                                      accumulator.normalizedEntryPath)) {
+                continue;
+            }
+
+            accumulator.candidate.size += size;
+            ++accumulator.candidate.fileCount;
+            accumulator.candidate.lastModified = std::max(
+                    accumulator.candidate.lastModified,
+                    QDateTime::fromMSecsSinceEpoch(modifiedMilliseconds));
+            accumulator.fingerprint.add(
+                    relativeToCandidate(normalizedFilePath,
+                                        accumulator.normalizedEntryPath),
+                    size, modifiedMilliseconds);
+            const bool exactVerifiedMatch = classification.verifiedRule
+                    && normalizedMatchedPath == accumulator.normalizedEntryPath
+                    && classification.risk == RiskLevel::Safe
+                    && classification.rebuildable == RebuildableState::Yes;
+            if (!exactVerifiedMatch)
+                accumulator.candidate.containsUnsafeData = true;
         }
         auto iterator = groupIndexes.constFind(classification.id);
         if (iterator == groupIndexes.cend()) {
@@ -146,7 +286,6 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
 
     const bool verifyStability = target.locationOwnership
                     == RuleLocationOwnership::Exclusive
-            && target.application.installState != InstallState::Installed
             && target.locationDiscoveryComplete;
     const core::DirectoryScanStats stats = scanner.scan(
             target.path, cancelRequested, visitor, statusCallback,
@@ -161,6 +300,25 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
                 stats.latestModifiedMilliseconds);
     }
     issues += stats.issues;
+
+    for (CandidateAccumulator &accumulator : candidateAccumulators) {
+        if (accumulator.candidate.fileCount == 0)
+            continue;
+        accumulator.candidate.metadataFingerprint = accumulator.fingerprint.value();
+        accumulator.candidate.scanComplete = application.scanComplete;
+        const platform::windows::StablePathIdentityResult identity =
+                platform::windows::StablePathIdentityReader::read(
+                        accumulator.candidate.path);
+        if (identity.state == platform::windows::StablePathState::Present
+                && identity.identity.valid) {
+            accumulator.candidate.identityValid = true;
+            accumulator.candidate.volumeSerialNumber =
+                    identity.identity.volumeSerialNumber;
+            accumulator.candidate.fileIndex = identity.identity.fileIndex;
+            accumulator.candidate.directory = identity.identity.directory;
+        }
+        application.cleanupCandidates.append(std::move(accumulator.candidate));
+    }
 
     for (const DataGroupInfo &group : application.dataGroups) {
         if (application.confidence >= 50

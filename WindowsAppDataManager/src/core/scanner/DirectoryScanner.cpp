@@ -1,8 +1,8 @@
 #include "DirectoryScanner.h"
+#include "MetadataFingerprint.h"
 
 #include "../../platform/windows/filesystem/ReparsePoint.h"
 
-#include <QCryptographicHash>
 #include <QDateTime>
 
 #include <algorithm>
@@ -34,9 +34,7 @@ std::filesystem::path stringToPath(const QString &path)
 
 qint64 toMilliseconds(std::filesystem::file_time_type value)
 {
-    const auto systemTime = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-            value - std::filesystem::file_time_type::clock::now()
-            + std::chrono::system_clock::now());
+    const auto systemTime = std::chrono::clock_cast<std::chrono::system_clock>(value);
     return std::chrono::duration_cast<std::chrono::milliseconds>(
             systemTime.time_since_epoch()).count();
 }
@@ -90,34 +88,9 @@ void appendChangedDuringScanIssue(DirectoryScanStats &stats,
     });
 }
 
-struct SnapshotFingerprint {
-    QByteArray digest = QByteArray(32, '\0');
-
-    void add(const std::filesystem::path &relativePath,
-             std::uintmax_t size,
-             std::filesystem::file_time_type modified)
-    {
-        QByteArray value = pathToQString(relativePath.lexically_normal())
-                                   .toCaseFolded().toUtf8();
-        value.append('\0');
-        value.append(QByteArray::number(size));
-        value.append('\0');
-        value.append(QByteArray::number(modified.time_since_epoch().count()));
-        const QByteArray entryDigest = QCryptographicHash::hash(
-                value, QCryptographicHash::Sha256);
-        for (qsizetype index = 0; index < digest.size(); ++index)
-            digest[index] = static_cast<char>(digest.at(index) ^ entryDigest.at(index));
-    }
-
-    [[nodiscard]] bool operator==(const SnapshotFingerprint &other) const
-    {
-        return digest == other.digest;
-    }
-};
-
 struct ScanPassResult {
     DirectoryScanStats stats;
-    SnapshotFingerprint fingerprint;
+    MetadataFingerprint fingerprint;
 };
 
 bool pathsEqual(const std::filesystem::path &left, const std::filesystem::path &right)
@@ -204,7 +177,8 @@ ScanPassResult scanPass(
                         stats.latestModifiedMilliseconds, modifiedMilliseconds);
                 if (!error) {
                     result.fingerprint.add(
-                            path.lexically_relative(rootPath), rawSize, modified);
+                            pathToQString(path.lexically_relative(rootPath)),
+                            size, modifiedMilliseconds);
                 }
                 if (visitor)
                     visitor(path.lexically_relative(rootPath), size, modifiedMilliseconds);
@@ -225,6 +199,7 @@ ScanPassResult scanPass(
         }
     }
 
+    stats.metadataFingerprint = result.fingerprint.value();
     return result;
 }
 
@@ -257,7 +232,8 @@ DirectoryScanStats DirectoryScanner::scan(const QString &root,
     if (!first.stats.cancelled && verification.stats.issues.isEmpty()) {
         if (first.stats.fileCount != verification.stats.fileCount
                 || first.stats.totalSize != verification.stats.totalSize
-                || !(first.fingerprint == verification.fingerprint)) {
+                || first.stats.metadataFingerprint
+                        != verification.stats.metadataFingerprint) {
             appendChangedDuringScanIssue(first.stats, rootPath);
         } else {
             first.stats.stabilityVerified = true;

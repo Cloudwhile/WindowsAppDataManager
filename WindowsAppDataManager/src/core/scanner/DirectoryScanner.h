@@ -13,6 +13,7 @@ struct DirectoryScanStats {
     quint64 totalSize = 0;
     quint64 fileCount = 0;
     qint64 latestModifiedMilliseconds = 0;
+    QString metadataFingerprint;
     QVector<ScanIssue> issues;
     bool cancelled = false;
     bool stabilityVerified = false;
