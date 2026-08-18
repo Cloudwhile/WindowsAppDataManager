@@ -6,10 +6,11 @@ include(qt.cmake)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Sql)
 find_package(Qt${QT_VERSION_MAJOR}
     COMPONENTS
         Concurrent
+        Sql
         Qml
         Quick
         QuickControls2
@@ -22,6 +23,10 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.8)
 endif()
 
 set(BACKEND_SOURCES
+    src/core/cleanup/CleanupPlanBuilder.cpp
+    src/core/cleanup/CleanupPlanBuilder.h
+    src/core/cleanup/CleanupValidator.cpp
+    src/core/cleanup/CleanupValidator.h
     src/core/classifier/DataClassifier.cpp
     src/core/classifier/DataClassifier.h
     src/core/classifier/RiskAssessment.cpp
@@ -39,7 +44,10 @@ set(BACKEND_SOURCES
     src/core/rules/RulePathResolver.h
     src/core/scanner/DirectoryScanner.cpp
     src/core/scanner/DirectoryScanner.h
+    src/core/scanner/MetadataFingerprint.cpp
+    src/core/scanner/MetadataFingerprint.h
     src/models/ApplicationInfo.h
+    src/models/CleanupPlan.h
     src/models/InstallationEvidence.h
     src/models/RuleDefinition.h
     src/models/ScanResult.h
@@ -47,6 +55,8 @@ set(BACKEND_SOURCES
     src/platform/windows/appx/AppxPackageCatalog.h
     src/platform/windows/filesystem/AppDataPaths.cpp
     src/platform/windows/filesystem/AppDataPaths.h
+    src/platform/windows/filesystem/DeletionAccessProbe.cpp
+    src/platform/windows/filesystem/DeletionAccessProbe.h
     src/platform/windows/filesystem/ExecutableFileIdentity.cpp
     src/platform/windows/filesystem/ExecutableFileIdentity.h
     src/platform/windows/filesystem/ExecutableMetadataReader.cpp
@@ -55,12 +65,21 @@ set(BACKEND_SOURCES
     src/platform/windows/filesystem/PathPresenceReader.h
     src/platform/windows/filesystem/ReparsePoint.cpp
     src/platform/windows/filesystem/ReparsePoint.h
+    src/platform/windows/filesystem/StablePathIdentity.cpp
+    src/platform/windows/filesystem/StablePathIdentity.h
     src/platform/windows/process/RunningProcessCatalog.cpp
     src/platform/windows/process/RunningProcessCatalog.h
     src/platform/windows/registry/InstalledApplicationRegistry.cpp
     src/platform/windows/registry/InstalledApplicationRegistry.h
     src/platform/windows/security/AuthenticodeVerifier.cpp
     src/platform/windows/security/AuthenticodeVerifier.h
+    src/platform/windows/shell/RecycleBinExecutor.cpp
+    src/platform/windows/shell/RecycleBinExecutor.h
+    src/repositories/CleanupHistoryRepository.cpp
+    src/repositories/CleanupHistoryRepository.h
+    src/services/CleanupExecutor.h
+    src/services/CleanupService.cpp
+    src/services/CleanupService.h
     src/services/InstallationEvidenceCollector.cpp
     src/services/InstallationEvidenceCollector.h
     src/services/ScanService.cpp
@@ -70,7 +89,7 @@ set(BACKEND_SOURCES
 )
 
 add_library(wam_backend STATIC ${BACKEND_SOURCES})
-target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent)
+target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent Qt::Sql)
 if(MSVC)
     target_compile_options(wam_backend PRIVATE /EHsc)
 endif()
@@ -79,6 +98,8 @@ if(WIN32)
         windowsapp
         advapi32
         crypt32
+        ole32
+        shell32
         version
         wintrust
     )
@@ -150,6 +171,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             components/ApplicationListHeader.qml
             components/ApplicationDetailContent.qml
             components/ConfidenceIndicator.qml
+            components/CleanupItemRow.qml
             components/DataCategoryRow.qml
             components/DetailMetric.qml
             components/DetailPanel.qml
@@ -159,12 +181,17 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             pages/OverviewPage.qml
             pages/ApplicationsPage.qml
             pages/ApplicationDetailPage.qml
+            pages/CleanupPage.qml
             pages/SettingsPage.qml
         SOURCES
             src/qmlmodels/AppBackend.cpp
             src/qmlmodels/AppBackend.h
             src/qmlmodels/ApplicationListModel.cpp
             src/qmlmodels/ApplicationListModel.h
+            src/qmlmodels/CleanupPlanModel.cpp
+            src/qmlmodels/CleanupPlanModel.h
+            src/qmlmodels/CleanupViewModel.cpp
+            src/qmlmodels/CleanupViewModel.h
             src/qmlmodels/ApplicationFilterModel.cpp
             src/qmlmodels/ApplicationFilterModel.h
             src/qmlmodels/ScanViewModel.cpp
@@ -199,6 +226,8 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             resources/Icons/TablerSettings.svg
             resources/Icons/TablerSettingsFilled.svg
             resources/Icons/TablerSunFilled.svg
+            resources/Icons/TablerTrash.svg
+            resources/Icons/TablerTrashFilled.svg
             resources/Icons/TablerX.svg
             resources/Icons/TablerZoom.svg
             resources/Icons/TablerZoomScan.svg
@@ -293,6 +322,22 @@ if(BUILD_TESTING)
     set_tests_properties(wam_orphan_detection_tests PROPERTIES
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>"
+    )
+
+    add_executable(wam_cleanup_tests
+        tests/tst_cleanup.cpp
+        src/qmlmodels/CleanupPlanModel.cpp
+        src/qmlmodels/CleanupPlanModel.h
+    )
+    target_link_libraries(wam_cleanup_tests PRIVATE
+        wam_backend
+        Qt::Qml
+        Qt::Test
+    )
+    add_test(NAME wam_cleanup_tests COMMAND wam_cleanup_tests)
+    set_tests_properties(wam_cleanup_tests PROPERTIES
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>;QT_PLUGIN_PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins"
     )
 endif()
 
