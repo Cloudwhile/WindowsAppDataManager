@@ -28,11 +28,13 @@ ApplicationWindow {
 
     readonly property ScanViewModel scanController: Backend.scan
     readonly property SettingsViewModel settingsController: Backend.settings
+    readonly property CleanupViewModel cleanupController: Backend.cleanup
     readonly property ApplicationFilterModel applicationFilter: Backend.applicationFilter
     readonly property int overviewPageIndex: 0
     readonly property int applicationsPageIndex: 1
     readonly property int applicationDetailPageIndex: 2
-    readonly property int settingsPageIndex: 3
+    readonly property int cleanupPageIndex: 3
+    readonly property int settingsPageIndex: 4
     property int currentPage: overviewPageIndex
     readonly property bool scanning: scanController.running
     readonly property real scanProgress: scanController.progress
@@ -51,12 +53,16 @@ ApplicationWindow {
     property bool detailPaneOpen: false
 
     onCurrentPageChanged: pageFade.restart()
-    readonly property color scanStatusColor: scanning ? Theme.accentText
+    readonly property color scanStatusColor: cleanupController.running
+                                                      ? Theme.accentText
+                                                      : scanning ? Theme.accentText
                                                       : scanController.errorMessage.length > 0 ? Theme.redText
                                                       : scanController.partialResult ? Theme.amberText
                                                       : scanController.progress === 100 ? Theme.greenText
                                                                                        : Theme.textMuted
-    readonly property url scanStatusIcon: scanning
+    readonly property url scanStatusIcon: cleanupController.running
+                                           ? Qt.resolvedUrl("resources/Icons/TablerTrashFilled.svg")
+                                           : scanning
                                            ? Qt.resolvedUrl("resources/Icons/TablerActivityHeartbeat.svg")
                                            : scanController.errorMessage.length > 0
                                              ? Qt.resolvedUrl("resources/Icons/TablerExclamationMark.svg")
@@ -67,6 +73,10 @@ ApplicationWindow {
                                              : Qt.resolvedUrl("resources/Icons/TablerPointFilled.svg")
 
     function toggleScan() {
+        if (cleanupController.running) {
+            currentPage = cleanupPageIndex
+            return
+        }
         scanController.toggleScan()
     }
 
@@ -123,6 +133,8 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.top: parent.top
         scanning: window.scanning
+        scanEnabled: !window.cleanupController.running
+        cleanupRunning: window.cleanupController.running
         targetPath: window.scanController.targetPath
         sidebarWidth: window.sidebarWidth
         darkTheme: Theme.dark
@@ -140,7 +152,9 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         statusIcon: window.scanStatusIcon
         statusColor: window.scanStatusColor
-        statusText: window.scanController.statusText
+        statusText: window.cleanupController.running
+                    ? window.cleanupController.statusText
+                    : window.scanController.statusText
         totalSizeText: AppStore.applications.totalSizeText
         scanning: window.scanning
         scanProgress: window.scanProgress
@@ -166,6 +180,7 @@ ApplicationWindow {
             overviewPageIndex: window.overviewPageIndex
             applicationsPageIndex: window.applicationsPageIndex
             applicationDetailPageIndex: window.applicationDetailPageIndex
+            cleanupPageIndex: window.cleanupPageIndex
             settingsPageIndex: window.settingsPageIndex
             onPageRequested: pageIndex => window.currentPage = pageIndex
         }
@@ -206,6 +221,12 @@ ApplicationWindow {
             ApplicationDetailPage {
                 application: AppStore.selectedApplication
                 onBackRequested: window.returnToApplications()
+            }
+
+            CleanupPage {
+                cleanupController: window.cleanupController
+                scanning: window.scanning
+                onScanRequested: window.toggleScan()
             }
 
             SettingsPage {

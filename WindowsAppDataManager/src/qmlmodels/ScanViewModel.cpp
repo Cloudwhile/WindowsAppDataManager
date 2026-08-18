@@ -43,6 +43,7 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
         }
 
         m_applicationModel->setApplications(result.applications);
+        emit scanResultAccepted(result);
         setProgress(100);
         m_lastScanText = QStringLiteral("今天 %1").arg(
                 QDateTime::currentDateTime().time().toString(QStringLiteral("HH:mm")));

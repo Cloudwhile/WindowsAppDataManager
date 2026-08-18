@@ -50,6 +50,7 @@ signals:
     void lastScanTextChanged();
     void errorChanged();
     void issueCountChanged();
+    void scanResultAccepted(const wam::ScanResult &result);
 
 private:
     void setRunning(bool running);

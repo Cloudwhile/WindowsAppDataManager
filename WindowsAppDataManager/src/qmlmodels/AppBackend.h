@@ -2,6 +2,7 @@
 
 #include "ApplicationListModel.h"
 #include "ApplicationFilterModel.h"
+#include "CleanupViewModel.h"
 #include "ScanViewModel.h"
 #include "SettingsViewModel.h"
 
@@ -18,6 +19,7 @@ class AppBackend : public QObject {
     Q_PROPERTY(wam::qmlmodels::ApplicationFilterModel *applicationFilter
                READ applicationFilter CONSTANT)
     Q_PROPERTY(wam::qmlmodels::ScanViewModel *scan READ scan CONSTANT)
+    Q_PROPERTY(wam::qmlmodels::CleanupViewModel *cleanup READ cleanup CONSTANT)
     Q_PROPERTY(wam::qmlmodels::SettingsViewModel *settings READ settings CONSTANT)
 
 public:
@@ -26,12 +28,14 @@ public:
     [[nodiscard]] ApplicationListModel *applications();
     [[nodiscard]] ApplicationFilterModel *applicationFilter();
     [[nodiscard]] ScanViewModel *scan();
+    [[nodiscard]] CleanupViewModel *cleanup();
     [[nodiscard]] SettingsViewModel *settings();
 
 private:
     ApplicationListModel m_applications;
     ApplicationFilterModel m_applicationFilter;
     ScanViewModel m_scan;
+    CleanupViewModel m_cleanup;
     SettingsViewModel m_settings;
 };
 

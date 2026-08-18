@@ -5,6 +5,8 @@ Rectangle {
     id: bar
 
     required property bool scanning
+    required property bool scanEnabled
+    required property bool cleanupRunning
     required property string targetPath
     required property int sidebarWidth
     required property bool darkTheme
@@ -60,8 +62,10 @@ Rectangle {
             }
 
             Text {
-                text: bar.scanning ? "扫描进行中" : "本机"
-                color: bar.scanning ? Theme.accentText : Theme.textMuted
+                text: bar.scanning ? "扫描进行中"
+                                   : bar.cleanupRunning ? "清理进行中" : "本机"
+                color: bar.scanning || bar.cleanupRunning
+                       ? Theme.accentText : Theme.textMuted
                 font.pixelSize: 10
             }
         }
@@ -126,6 +130,7 @@ Rectangle {
                         : Qt.resolvedUrl("../resources/Icons/TablerPlayerPlayFilled.svg")
             tooltip: bar.scanning ? "停止扫描" : "开始扫描"
             prominent: true
+            enabled: bar.scanning || bar.scanEnabled
             onClicked: bar.scanToggled()
         }
 

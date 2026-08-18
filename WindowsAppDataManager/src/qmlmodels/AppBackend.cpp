@@ -7,6 +7,10 @@ AppBackend::AppBackend(QObject *parent)
       m_applicationFilter(&m_applications),
       m_scan(&m_applications)
 {
+    connect(&m_scan, &ScanViewModel::scanResultAccepted,
+            &m_cleanup, &CleanupViewModel::setScanResult);
+    connect(&m_cleanup, &CleanupViewModel::rescanRequested,
+            &m_scan, &ScanViewModel::startScan);
 }
 
 ApplicationListModel *AppBackend::applications()
@@ -22,6 +26,11 @@ ApplicationFilterModel *AppBackend::applicationFilter()
 ScanViewModel *AppBackend::scan()
 {
     return &m_scan;
+}
+
+CleanupViewModel *AppBackend::cleanup()
+{
+    return &m_cleanup;
 }
 
 SettingsViewModel *AppBackend::settings()

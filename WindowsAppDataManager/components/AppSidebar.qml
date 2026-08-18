@@ -7,6 +7,7 @@ Rectangle {
     required property int overviewPageIndex
     required property int applicationsPageIndex
     required property int applicationDetailPageIndex
+    required property int cleanupPageIndex
     required property int settingsPageIndex
 
     signal pageRequested(int pageIndex)
@@ -55,6 +56,15 @@ Rectangle {
             selected: sidebar.currentPage === sidebar.applicationsPageIndex
                       || sidebar.currentPage === sidebar.applicationDetailPageIndex
             onClicked: sidebar.pageRequested(sidebar.applicationsPageIndex)
+        }
+
+        NavItem {
+            width: parent.width
+            iconSource: Qt.resolvedUrl("../resources/Icons/TablerTrash.svg")
+            selectedIconSource: Qt.resolvedUrl("../resources/Icons/TablerTrashFilled.svg")
+            label: "清理"
+            selected: sidebar.currentPage === sidebar.cleanupPageIndex
+            onClicked: sidebar.pageRequested(sidebar.cleanupPageIndex)
         }
 
     }
