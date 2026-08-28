@@ -119,6 +119,15 @@ void collectAppxEvidence(InstallationEvidenceSnapshot &snapshot)
     }
 }
 
+bool catalogUsesAppxEvidence(const core::rules::RuleCatalog &catalog)
+{
+    return std::any_of(
+            catalog.applications().cbegin(), catalog.applications().cend(),
+            [](const ApplicationRule &rule) {
+        return !rule.identifiers.appxPackageNames.isEmpty();
+    });
+}
+
 void collectRunningProcessEvidence(InstallationEvidenceSnapshot &snapshot)
 {
     const platform::windows::RunningProcessQueryResult processes =
@@ -463,8 +472,10 @@ InstallationEvidenceSnapshot InstallationEvidenceCollector::collect(
         const core::rules::RuleCatalog &catalog)
 {
     InstallationEvidenceSnapshot snapshot;
+    const bool usesAppxEvidence = catalogUsesAppxEvidence(catalog);
     collectRegistryEvidence(snapshot);
-    collectAppxEvidence(snapshot);
+    if (usesAppxEvidence)
+        collectAppxEvidence(snapshot);
     collectInstallPathEvidence(catalog, snapshot);
     collectRunningProcessEvidence(snapshot);
     collectExecutableEvidence(catalog, snapshot);
@@ -472,9 +483,11 @@ InstallationEvidenceSnapshot InstallationEvidenceCollector::collect(
     logIssues(QStringLiteral("Registry"),
               snapshot.registry.availability,
               snapshot.registry.issues);
-    logIssues(QStringLiteral("AppX / MSIX"),
-              snapshot.appx.availability,
-              snapshot.appx.issues);
+    if (usesAppxEvidence) {
+        logIssues(QStringLiteral("AppX / MSIX"),
+                  snapshot.appx.availability,
+                  snapshot.appx.issues);
+    }
     logIssues(QStringLiteral("Install path"),
               snapshot.installPaths.availability,
               snapshot.installPaths.issues);

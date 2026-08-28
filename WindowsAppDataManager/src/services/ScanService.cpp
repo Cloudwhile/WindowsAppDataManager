@@ -16,14 +16,37 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QMetaObject>
+#include <QTimer>
+#include <QThread>
+#include <QThreadPool>
+#include <QtConcurrentMap>
 #include <QtConcurrentRun>
 
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <numeric>
+#include <optional>
+#include <utility>
 
 namespace wam::services {
+
+struct ScanUpdateDispatchState {
+    std::mutex mutex;
+    QHash<QString, ApplicationInfo> pendingApplications;
+    int issueCount = 0;
+    int completedTargets = 0;
+    int totalTargets = 0;
+    bool deliveryScheduled = false;
+};
+
 namespace {
+
+constexpr int updateDeliveryIntervalMs = 50;
+constexpr int maximumParallelScanThreads = 8;
 
 QString displayTarget(const QStringList &roots)
 {
@@ -89,6 +112,73 @@ struct CandidateAccumulator {
     CleanupCandidateInfo candidate;
     QString normalizedEntryPath;
     core::MetadataFingerprint fingerprint;
+};
+
+class ScanProgressPublisher final {
+public:
+    ScanProgressPublisher(
+            int totalTargets,
+            std::function<void(int, const QString &)> callback)
+        : m_totalTargets(totalTargets),
+          m_callback(std::move(callback)),
+          m_lastStatusUpdate(std::chrono::steady_clock::now()
+                             - std::chrono::milliseconds(100))
+    {
+    }
+
+    void reportPath(const QString &path)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard lock(m_mutex);
+        if (now - m_lastStatusUpdate < std::chrono::milliseconds(100))
+            return;
+        m_lastStatusUpdate = now;
+        m_callback(m_lastProgress, path);
+    }
+
+    void reportCompleted(int completedTargets)
+    {
+        std::lock_guard lock(m_mutex);
+        const int progress = m_totalTargets == 0
+                ? 100 : completedTargets * 100 / m_totalTargets;
+        if (progress <= m_lastProgress)
+            return;
+        m_lastProgress = progress;
+        m_callback(m_lastProgress, {});
+    }
+
+    void reportFinished()
+    {
+        std::lock_guard lock(m_mutex);
+        m_lastProgress = 100;
+        m_callback(m_lastProgress, {});
+    }
+
+private:
+    const int m_totalTargets;
+    const std::function<void(int, const QString &)> m_callback;
+    std::mutex m_mutex;
+    std::chrono::steady_clock::time_point m_lastStatusUpdate;
+    int m_lastProgress = 0;
+};
+
+struct TargetScanOutcome {
+    int targetIndex = -1;
+    ApplicationInfo application;
+    QVector<ScanIssue> issues;
+    RuleLocationOwnership locationOwnership = RuleLocationOwnership::Shared;
+    bool completed = false;
+};
+
+struct MergedScanState {
+    ScanResult result;
+    QHash<QString, bool> exclusiveLocations;
+};
+
+struct ParallelScanAccumulator {
+    QVector<std::optional<TargetScanOutcome>> outcomesByIndex;
+    MergedScanState merged;
+    int completedTargets = 0;
 };
 
 QVector<CandidateAccumulator> cleanupCandidateAccumulators(
@@ -208,24 +298,110 @@ void mergeApplication(ApplicationInfo &application, ApplicationInfo incoming)
     }
 }
 
+void refreshMergedApplication(ParallelScanAccumulator &accumulator,
+                              const QString &applicationId,
+                              const QVector<int> &targetIndexes)
+{
+    ApplicationInfo rebuilt;
+    bool found = false;
+    bool exclusiveLocations = true;
+    for (const int targetIndex : targetIndexes) {
+        if (targetIndex < 0
+                || targetIndex >= accumulator.outcomesByIndex.size()) {
+            continue;
+        }
+        const std::optional<TargetScanOutcome> &storedOutcome =
+                accumulator.outcomesByIndex.at(targetIndex);
+        if (!storedOutcome || !storedOutcome->completed
+                || storedOutcome->application.id != applicationId) {
+            continue;
+        }
+
+        if (!found) {
+            rebuilt = storedOutcome->application;
+            found = true;
+        } else {
+            mergeApplication(rebuilt, storedOutcome->application);
+        }
+        exclusiveLocations = exclusiveLocations
+                && storedOutcome->locationOwnership
+                        == RuleLocationOwnership::Exclusive;
+    }
+    if (!found)
+        return;
+
+    auto existing = std::find_if(
+            accumulator.merged.result.applications.begin(),
+            accumulator.merged.result.applications.end(),
+            [&applicationId](const ApplicationInfo &application) {
+        return application.id == applicationId;
+    });
+    if (existing == accumulator.merged.result.applications.end())
+        accumulator.merged.result.applications.append(std::move(rebuilt));
+    else
+        *existing = std::move(rebuilt);
+    accumulator.merged.exclusiveLocations.insert(
+            applicationId, exclusiveLocations);
+}
+
+MergedScanState mergeCompletedOutcomes(
+        const QStringList &roots,
+        const QVector<std::optional<TargetScanOutcome>> &outcomesByIndex)
+{
+    MergedScanState merged;
+    merged.result.roots = roots;
+    QHash<QString, int> applicationIndexes;
+
+    for (const std::optional<TargetScanOutcome> &storedOutcome : outcomesByIndex) {
+        if (!storedOutcome || !storedOutcome->completed)
+            continue;
+
+        ApplicationInfo application = storedOutcome->application;
+        merged.result.issues += storedOutcome->issues;
+        const QString applicationId = application.id;
+        auto existing = applicationIndexes.constFind(applicationId);
+        if (existing == applicationIndexes.cend()) {
+            applicationIndexes.insert(applicationId, merged.result.applications.size());
+            merged.exclusiveLocations.insert(
+                    applicationId,
+                    storedOutcome->locationOwnership
+                            == RuleLocationOwnership::Exclusive);
+            merged.result.applications.append(std::move(application));
+            continue;
+        }
+
+        merged.exclusiveLocations[applicationId] =
+                merged.exclusiveLocations.value(applicationId)
+                && storedOutcome->locationOwnership
+                        == RuleLocationOwnership::Exclusive;
+        mergeApplication(merged.result.applications[*existing],
+                         std::move(application));
+    }
+
+    return merged;
+}
+
 ApplicationInfo scanTarget(const core::ScanTarget &target,
                            const std::atomic_bool &cancelRequested,
                            const core::DirectoryScanner::StatusCallback &statusCallback,
-                           QVector<ScanIssue> &issues)
+                           QVector<ScanIssue> &issues,
+                           bool &scanCancelled)
 {
     ApplicationInfo application = target.application;
     core::DirectoryScanner scanner;
-    core::DataClassifier classifier;
+    const core::DataClassifier classifier(
+            target.classificationRules, target.ruleSource);
     QHash<QString, int> groupIndexes;
     QVector<CandidateAccumulator> candidateAccumulators =
             cleanupCandidateAccumulators(target);
+    const bool lowConfidence = application.confidence < 50;
+    const bool hasCleanupCandidates = !candidateAccumulators.isEmpty();
 
     const auto visitor = [&](const std::filesystem::path &relativePath,
                              quint64 size,
                              qint64 modifiedMilliseconds) {
-        core::Classification classification = classifier.classify(
-                relativePath, target.classificationRules, target.ruleSource);
-        if (application.confidence < 50) {
+        core::Classification classification = classifier.classify(relativePath);
+        if (lowConfidence) {
             classification.risk = RiskLevel::Unknown;
             classification.rebuildable = RebuildableState::Unknown;
             classification.impact = QStringLiteral(
@@ -235,31 +411,32 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
             classification.verifiedRule = false;
         }
 
-        const QString normalizedFilePath = normalizedRelativePath(
-                pathToQString(relativePath));
-        const QString normalizedMatchedPath = normalizedRelativePath(
-                classification.matchedPath);
-        for (CandidateAccumulator &accumulator : candidateAccumulators) {
-            if (!relativePathContains(normalizedFilePath,
-                                      accumulator.normalizedEntryPath)) {
-                continue;
-            }
+        if (hasCleanupCandidates) {
+            const QString normalizedFilePath = normalizedRelativePath(
+                    pathToQString(relativePath));
+            for (CandidateAccumulator &accumulator : candidateAccumulators) {
+                if (!relativePathContains(normalizedFilePath,
+                                          accumulator.normalizedEntryPath)) {
+                    continue;
+                }
 
-            accumulator.candidate.size += size;
-            ++accumulator.candidate.fileCount;
-            accumulator.candidate.lastModified = std::max(
-                    accumulator.candidate.lastModified,
-                    QDateTime::fromMSecsSinceEpoch(modifiedMilliseconds));
-            accumulator.fingerprint.add(
-                    relativeToCandidate(normalizedFilePath,
-                                        accumulator.normalizedEntryPath),
-                    size, modifiedMilliseconds);
-            const bool exactVerifiedMatch = classification.verifiedRule
-                    && normalizedMatchedPath == accumulator.normalizedEntryPath
-                    && classification.risk == RiskLevel::Safe
-                    && classification.rebuildable == RebuildableState::Yes;
-            if (!exactVerifiedMatch)
-                accumulator.candidate.containsUnsafeData = true;
+                accumulator.candidate.size += size;
+                ++accumulator.candidate.fileCount;
+                accumulator.candidate.lastModified = std::max(
+                        accumulator.candidate.lastModified,
+                        QDateTime::fromMSecsSinceEpoch(modifiedMilliseconds));
+                accumulator.fingerprint.add(
+                        relativeToCandidate(normalizedFilePath,
+                                            accumulator.normalizedEntryPath),
+                        size, modifiedMilliseconds);
+                const bool exactVerifiedMatch = classification.verifiedRule
+                        && classification.id
+                                == accumulator.candidate.ruleEntryId
+                        && classification.risk == RiskLevel::Safe
+                        && classification.rebuildable == RebuildableState::Yes;
+                if (!exactVerifiedMatch)
+                    accumulator.candidate.containsUnsafeData = true;
+            }
         }
         auto iterator = groupIndexes.constFind(classification.id);
         if (iterator == groupIndexes.cend()) {
@@ -289,7 +466,8 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
             && target.locationDiscoveryComplete;
     const core::DirectoryScanStats stats = scanner.scan(
             target.path, cancelRequested, visitor, statusCallback,
-            target.excludedPaths, verifyStability);
+            target.excludedPaths, verifyStability, verifyStability);
+    scanCancelled = stats.cancelled;
     application.totalSize = stats.totalSize;
     application.fileCount = stats.fileCount;
     application.scanComplete = target.locationDiscoveryComplete
@@ -348,76 +526,188 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
     return application;
 }
 
-ScanResult performScan(const QStringList &roots,
-                       const std::shared_ptr<std::atomic_bool> &cancelRequested,
-                       const std::function<void(int, const QString &)> &progressCallback)
+ApplicationInfo finalizedApplication(ApplicationInfo application,
+                                     bool exclusiveLocations,
+                                     bool scanCompleted)
 {
-    QElapsedTimer timer;
-    timer.start();
+    application.risk = core::applicationRisk(application);
+    core::OrphanDetectionContext orphanContext;
+    orphanContext.exclusiveLocations = exclusiveLocations;
+    orphanContext.scanCompleted = scanCompleted;
+    orphanContext.assessedAt = QDateTime::currentDateTimeUtc();
+    application.orphanAssessment = core::OrphanDetector::assess(
+            application, orphanContext);
+    application.installState = application.orphanAssessment.state;
+    return application;
+}
 
-    ScanResult result;
-    result.roots = roots;
-    const core::rules::RuleCatalog &catalog = core::rules::RuleCatalog::builtIn();
-    core::AppResolver resolver(catalog, InstallationEvidenceCollector::collect(catalog));
-    const QVector<core::ScanTarget> targets = resolver.discoverTargets(roots);
-    QHash<QString, int> applicationIndexes;
-    QHash<QString, bool> exclusiveLocations;
-
-    for (qsizetype targetIndex = 0; targetIndex < targets.size(); ++targetIndex) {
-        if (cancelRequested->load(std::memory_order_relaxed)) {
-            result.cancelled = true;
-            break;
-        }
-
-        const core::ScanTarget &target = targets[targetIndex];
-        const int baseProgress = targets.isEmpty()
-                ? 0 : static_cast<int>(targetIndex * 100 / targets.size());
-        progressCallback(baseProgress, target.path);
-
-        auto lastStatusUpdate = std::chrono::steady_clock::now();
-        const auto statusCallback = [&](const QString &path, quint64) {
-            const auto now = std::chrono::steady_clock::now();
-            if (now - lastStatusUpdate < std::chrono::milliseconds(100))
-                return;
-            lastStatusUpdate = now;
-            progressCallback(baseProgress, path);
-        };
-
-        ApplicationInfo application = scanTarget(
-                target, *cancelRequested, statusCallback, result.issues);
-        auto existing = applicationIndexes.constFind(application.id);
-        if (existing == applicationIndexes.cend()) {
-            applicationIndexes.insert(application.id, result.applications.size());
-            exclusiveLocations.insert(
-                    application.id,
-                    target.locationOwnership == RuleLocationOwnership::Exclusive);
-            result.applications.append(std::move(application));
-        } else {
-            exclusiveLocations[application.id] = exclusiveLocations.value(application.id)
-                    && target.locationOwnership == RuleLocationOwnership::Exclusive;
-            mergeApplication(result.applications[*existing], std::move(application));
-        }
-    }
-
-    result.cancelled = result.cancelled
-            || cancelRequested->load(std::memory_order_relaxed);
+ScanResult finalizedResult(ScanResult result,
+                           const QHash<QString, bool> &exclusiveLocations,
+                           bool scanCompleted,
+                           qint64 elapsedMilliseconds)
+{
+    result.totalSize = 0;
+    result.fileCount = 0;
+    result.elapsedMilliseconds = elapsedMilliseconds;
     for (ApplicationInfo &application : result.applications) {
-        application.risk = core::applicationRisk(application);
-        core::OrphanDetectionContext orphanContext;
-        orphanContext.exclusiveLocations = exclusiveLocations.value(application.id, false);
-        orphanContext.scanCompleted = !result.cancelled;
-        orphanContext.assessedAt = QDateTime::currentDateTimeUtc();
-        application.orphanAssessment = core::OrphanDetector::assess(
-                application, orphanContext);
-        application.installState = application.orphanAssessment.state;
+        const bool applicationHasExclusiveLocations =
+                exclusiveLocations.value(application.id, false);
+        application = finalizedApplication(
+                std::move(application),
+                applicationHasExclusiveLocations,
+                scanCompleted);
         result.totalSize += application.totalSize;
         result.fileCount += application.fileCount;
     }
     std::sort(result.applications.begin(), result.applications.end(),
-              [](const auto &left, const auto &right) { return left.totalSize > right.totalSize; });
+              [](const auto &left, const auto &right) {
+        return left.totalSize > right.totalSize;
+    });
+    return result;
+}
 
-    result.elapsedMilliseconds = timer.elapsed();
-    progressCallback(result.cancelled ? 0 : 100, QString());
+ScanResult performScan(
+        const QStringList &roots,
+        const std::shared_ptr<std::atomic_bool> &cancelRequested,
+        const std::function<void(int, const QString &)> &progressCallback,
+        const std::function<void(ApplicationInfo, int, int, int)> &updateCallback)
+{
+    QElapsedTimer timer;
+    timer.start();
+
+    const core::rules::RuleCatalog &catalog = core::rules::RuleCatalog::builtIn();
+    core::AppResolver resolver(catalog, InstallationEvidenceCollector::collect(catalog));
+    const QVector<core::ScanTarget> targets = resolver.discoverTargets(roots);
+    const int totalTargets = static_cast<int>(targets.size());
+    auto progressPublisher = std::make_shared<ScanProgressPublisher>(
+            totalTargets, progressCallback);
+
+    if (targets.isEmpty()) {
+        ScanResult emptyResult;
+        emptyResult.roots = roots;
+        emptyResult.cancelled = cancelRequested->load(std::memory_order_relaxed);
+        const bool scanCompleted = !emptyResult.cancelled;
+        if (!emptyResult.cancelled)
+            progressPublisher->reportFinished();
+        return finalizedResult(std::move(emptyResult), {},
+                               scanCompleted, timer.elapsed());
+    }
+
+    QVector<int> targetIndexes(totalTargets);
+    std::iota(targetIndexes.begin(), targetIndexes.end(), 0);
+    QHash<QString, QVector<int>> targetIndexesByApplicationId;
+    targetIndexesByApplicationId.reserve(totalTargets);
+    for (const int targetIndex : std::as_const(targetIndexes)) {
+        targetIndexesByApplicationId[targets.at(targetIndex).application.id]
+                .append(targetIndex);
+    }
+
+    ParallelScanAccumulator initialAccumulator;
+    initialAccumulator.outcomesByIndex.resize(totalTargets);
+    initialAccumulator.merged.result.roots = roots;
+
+    QThreadPool targetPool;
+    const int idealThreadCount = std::max(1, QThread::idealThreadCount());
+    const int responsiveThreadCount = idealThreadCount > 2
+            ? idealThreadCount - 1 : idealThreadCount;
+    targetPool.setMaxThreadCount(std::min(
+            {totalTargets, responsiveThreadCount, maximumParallelScanThreads}));
+
+    const auto mapTarget = [&](int targetIndex) {
+        TargetScanOutcome outcome;
+        outcome.targetIndex = targetIndex;
+        if (cancelRequested->load(std::memory_order_relaxed))
+            return outcome;
+
+        const core::ScanTarget &target = targets[targetIndex];
+        outcome.locationOwnership = target.locationOwnership;
+        const auto statusCallback = [&](const QString &path, quint64) {
+            if (!cancelRequested->load(std::memory_order_relaxed))
+                progressPublisher->reportPath(path);
+        };
+
+        try {
+            bool scanCancelled = false;
+            outcome.application = scanTarget(
+                    target, *cancelRequested, statusCallback,
+                    outcome.issues, scanCancelled);
+            outcome.completed = !scanCancelled;
+            return outcome;
+        } catch (...) {
+            cancelRequested->store(true, std::memory_order_relaxed);
+            throw;
+        }
+    };
+
+    const auto reduceTarget = [&](ParallelScanAccumulator &accumulator,
+                                  TargetScanOutcome outcome) {
+        if (!outcome.completed)
+            return;
+
+        const int targetIndex = outcome.targetIndex;
+        if (targetIndex < 0 || targetIndex >= accumulator.outcomesByIndex.size())
+            return;
+        const QString applicationId = outcome.application.id;
+        accumulator.outcomesByIndex[targetIndex] = std::move(outcome);
+        accumulator.merged.result.issues +=
+                accumulator.outcomesByIndex[targetIndex]->issues;
+        const auto applicationTargetIndexes =
+                targetIndexesByApplicationId.constFind(applicationId);
+        if (applicationTargetIndexes
+                == targetIndexesByApplicationId.cend()) {
+            return;
+        }
+        refreshMergedApplication(
+                accumulator, applicationId, applicationTargetIndexes.value());
+        ++accumulator.completedTargets;
+
+        if (cancelRequested->load(std::memory_order_relaxed))
+            return;
+
+        // 先推进完成进度，随后到达的并行路径事件便不会让 UI 倒退。
+        progressPublisher->reportCompleted(accumulator.completedTargets);
+        if (!updateCallback)
+            return;
+
+        const auto mergedApplication = std::find_if(
+                accumulator.merged.result.applications.cbegin(),
+                accumulator.merged.result.applications.cend(),
+                [&applicationId](const ApplicationInfo &application) {
+            return application.id == applicationId;
+        });
+        if (mergedApplication == accumulator.merged.result.applications.cend())
+            return;
+
+        updateCallback(finalizedApplication(
+                               *mergedApplication,
+                               accumulator.merged.exclusiveLocations.value(
+                                       applicationId, false),
+                               false),
+                       accumulator.merged.result.issues.size(),
+                       accumulator.completedTargets, totalTargets);
+    };
+
+    ParallelScanAccumulator accumulated;
+    try {
+        accumulated = QtConcurrent::blockingMappedReduced<ParallelScanAccumulator>(
+                &targetPool, targetIndexes, mapTarget, reduceTarget,
+                std::move(initialAccumulator),
+                QtConcurrent::UnorderedReduce | QtConcurrent::SequentialReduce);
+    } catch (...) {
+        cancelRequested->store(true, std::memory_order_relaxed);
+        throw;
+    }
+
+    MergedScanState merged = mergeCompletedOutcomes(
+            roots, accumulated.outcomesByIndex);
+    merged.result.cancelled = cancelRequested->load(std::memory_order_relaxed)
+            || accumulated.completedTargets != totalTargets;
+    const bool scanCompleted = !merged.result.cancelled;
+    ScanResult result = finalizedResult(
+            std::move(merged.result), merged.exclusiveLocations,
+            scanCompleted, timer.elapsed());
+    if (!result.cancelled)
+        progressPublisher->reportFinished();
     return result;
 }
 
@@ -431,6 +721,7 @@ ScanService::ScanService(QObject *parent)
     (void)core::rules::RuleCatalog::builtIn();
 
     connect(&m_watcher, &QFutureWatcher<ScanResult>::finished, this, [this] {
+        m_acceptingUpdates = false;
         try {
             emit scanCompleted(m_watcher.result());
         } catch (const std::exception &exception) {
@@ -445,6 +736,8 @@ ScanService::ScanService(QObject *parent)
 
 ScanService::~ScanService()
 {
+    m_acceptingUpdates = false;
+    ++m_scanGeneration;
     cancelScan();
     m_watcher.waitForFinished();
 }
@@ -478,17 +771,99 @@ void ScanService::startScan(const QStringList &roots)
     }
 
     m_cancelRequested = std::make_shared<std::atomic_bool>(false);
-    const auto progressCallback = [this](int progress, const QString &path) {
-        QMetaObject::invokeMethod(this, [this, progress, path] {
+    const quint64 generation = ++m_scanGeneration;
+    m_acceptingUpdates = true;
+    const auto updateDispatch =
+            std::make_shared<ScanUpdateDispatchState>();
+    const auto progressCallback = [this, generation](int progress,
+                                                     const QString &path) {
+        const QString queuedPath(path.constData(), path.size());
+        QMetaObject::invokeMethod(this, [this, generation, progress,
+                                         path = queuedPath] {
+            if (generation != m_scanGeneration || !m_acceptingUpdates)
+                return;
             emit progressChanged(progress, path);
+        }, Qt::QueuedConnection);
+    };
+    const auto updateCallback = [this, generation, updateDispatch](
+            ApplicationInfo application,
+            int issueCount,
+            int completedTargets,
+            int totalTargets) {
+        bool scheduleDelivery = false;
+        {
+            std::lock_guard lock(updateDispatch->mutex);
+            const QString applicationId = application.id;
+            updateDispatch->pendingApplications.insert(
+                    applicationId, std::move(application));
+            updateDispatch->issueCount = issueCount;
+            updateDispatch->completedTargets = completedTargets;
+            updateDispatch->totalTargets = totalTargets;
+            if (!updateDispatch->deliveryScheduled) {
+                updateDispatch->deliveryScheduled = true;
+                scheduleDelivery = true;
+            }
+        }
+        if (!scheduleDelivery)
+            return;
+
+        QMetaObject::invokeMethod(this, [this, generation, updateDispatch] {
+            deliverPendingUpdates(generation, updateDispatch);
         }, Qt::QueuedConnection);
     };
 
     emit scanStarted();
     m_watcher.setFuture(QtConcurrent::run(
-            [roots, cancelRequested = m_cancelRequested, progressCallback] {
-                return performScan(roots, cancelRequested, progressCallback);
+            [roots, cancelRequested = m_cancelRequested,
+             progressCallback, updateCallback] {
+                return performScan(roots, cancelRequested,
+                                   progressCallback, updateCallback);
             }));
+}
+
+void ScanService::deliverPendingUpdates(
+        quint64 generation,
+        const std::shared_ptr<ScanUpdateDispatchState> &state)
+{
+    if (generation != m_scanGeneration || !m_acceptingUpdates) {
+        std::lock_guard lock(state->mutex);
+        state->pendingApplications.clear();
+        state->deliveryScheduled = false;
+        return;
+    }
+
+    QVector<ApplicationInfo> applications;
+    int issueCount = 0;
+    int completedTargets = 0;
+    int totalTargets = 0;
+    {
+        std::lock_guard lock(state->mutex);
+        if (state->pendingApplications.isEmpty()) {
+            state->deliveryScheduled = false;
+            return;
+        }
+        applications.reserve(state->pendingApplications.size());
+        for (auto iterator = state->pendingApplications.begin();
+             iterator != state->pendingApplications.end(); ++iterator) {
+            applications.append(std::move(iterator.value()));
+        }
+        state->pendingApplications.clear();
+        issueCount = state->issueCount;
+        completedTargets = state->completedTargets;
+        totalTargets = state->totalTargets;
+    }
+
+    std::sort(applications.begin(), applications.end(),
+              [](const ApplicationInfo &left, const ApplicationInfo &right) {
+        return left.totalSize > right.totalSize;
+    });
+    emit scanUpdatesReady(applications, issueCount,
+                          completedTargets, totalTargets);
+
+    QTimer::singleShot(updateDeliveryIntervalMs, this,
+                       [this, generation, state] {
+        deliverPendingUpdates(generation, state);
+    });
 }
 
 void ScanService::cancelScan()

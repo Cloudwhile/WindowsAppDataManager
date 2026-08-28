@@ -4,9 +4,11 @@
 #include "src/core/rules/RuleCatalog.h"
 #include "src/core/rules/RuleLoader.h"
 #include "src/core/scanner/DirectoryScanner.h"
+#include "src/core/scanner/MetadataFingerprint.h"
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -96,7 +98,10 @@ private slots:
     void builtInCatalogContainsMvpApplications();
     void applicationRulesUseBoundaryAndLongestMatch();
     void applicationRiskPreservesSixLevels();
+    void metadataFingerprintRemainsStable();
     void scannerHandlesUnicodeAndCountsFiles();
+    void scannerCanSkipUnusedFingerprint();
+    void scannerThrottlesActivityByFileCount();
     void scannerHonorsCancellationAndExclusions();
     void resolverProducesStableCollisionFreeIds();
     void resolverSeparatesChromeAndChromium();
@@ -406,12 +411,21 @@ void BackendTest::applicationRulesUseBoundaryAndLongestMatch()
     };
     const QString source = QStringLiteral("内置规则 / sample-app@1");
     const wam::core::DataClassifier classifier;
+    const wam::core::DataClassifier preparedClassifier(entries, source);
 
     const auto longest = classifier.classify(
             fsPath(QStringLiteral("ASSETS/GENERATED/item.bin")), entries, source);
     QCOMPARE(longest.id, QStringLiteral("generated-assets"));
     QCOMPARE(longest.risk, wam::RiskLevel::Safe);
     QCOMPARE(longest.ruleSource, source);
+    const auto preparedLongest = preparedClassifier.classify(
+            fsPath(QStringLiteral("ASSETS/GENERATED/item.bin")));
+    QCOMPARE(preparedLongest.id, longest.id);
+    QCOMPARE(preparedLongest.risk, longest.risk);
+    QCOMPARE(preparedLongest.rebuildable, longest.rebuildable);
+    QCOMPARE(preparedLongest.ruleSource, longest.ruleSource);
+    QCOMPARE(preparedLongest.matchedPath,
+             QStringLiteral("assets\\Generated"));
 
     const auto base = classifier.classify(
             fsPath(QStringLiteral("assets/raw.bin")), entries, source);
@@ -446,6 +460,15 @@ void BackendTest::applicationRiskPreservesSixLevels()
     QCOMPARE(wam::core::applicationRisk(application), wam::RiskLevel::Unknown);
 }
 
+void BackendTest::metadataFingerprintRemainsStable()
+{
+    wam::core::MetadataFingerprint fingerprint;
+    fingerprint.add(QStringLiteral("cache/entry.bin"), 7, 1700000000123);
+    fingerprint.add(QStringLiteral("logs/trace.log"), 0, 1699999999000);
+    QCOMPARE(fingerprint.value(),
+             QStringLiteral("3a85cacfcaeb0b8d2b2059643e9eb63ac9ab17964a08045e9ab8b896f2c08c7a"));
+}
+
 void BackendTest::scannerHandlesUnicodeAndCountsFiles()
 {
     QTemporaryDir temporary;
@@ -474,6 +497,71 @@ void BackendTest::scannerHandlesUnicodeAndCountsFiles()
     }));
 }
 
+void BackendTest::scannerCanSkipUnusedFingerprint()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    writeFile(QDir(temporary.path()).filePath(QStringLiteral("first.bin")),
+              QByteArray(7, 'a'));
+    writeFile(QDir(temporary.path()).filePath(QStringLiteral("second.bin")),
+              QByteArray(5, 'b'));
+
+    std::atomic_bool cancelled = false;
+    quint64 defaultVisited = 0;
+    QStringList reportedPaths;
+    const auto defaultStats = wam::core::DirectoryScanner().scan(
+            temporary.path(), cancelled,
+            [&defaultVisited](const auto &, quint64, qint64) {
+                ++defaultVisited;
+            }, [&reportedPaths](const QString &path, quint64) {
+                reportedPaths.append(path);
+            });
+
+    quint64 optimizedVisited = 0;
+    const auto optimizedStats = wam::core::DirectoryScanner().scan(
+            temporary.path(), cancelled,
+            [&optimizedVisited](const auto &, quint64, qint64) {
+                ++optimizedVisited;
+            }, {}, {}, false, false);
+
+    QCOMPARE(optimizedStats.fileCount, defaultStats.fileCount);
+    QCOMPARE(optimizedStats.totalSize, defaultStats.totalSize);
+    QCOMPARE(optimizedStats.latestModifiedMilliseconds,
+             defaultStats.latestModifiedMilliseconds);
+    QCOMPARE(optimizedVisited, defaultVisited);
+    QVERIFY(!reportedPaths.isEmpty());
+    QVERIFY(QFileInfo(reportedPaths.constFirst()).isFile());
+    QVERIFY(!defaultStats.metadataFingerprint.isEmpty());
+    QVERIFY(optimizedStats.metadataFingerprint.isEmpty());
+
+    const auto verifiedStats = wam::core::DirectoryScanner().scan(
+            temporary.path(), cancelled, {}, {}, {}, true, false);
+    QVERIFY(verifiedStats.stabilityVerified);
+    QVERIFY(!verifiedStats.metadataFingerprint.isEmpty());
+}
+
+void BackendTest::scannerThrottlesActivityByFileCount()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    for (int index = 0; index < 257; ++index) {
+        writeFile(QDir(temporary.path()).filePath(
+                          QStringLiteral("entry-%1.bin").arg(index, 3, 10, QLatin1Char('0'))),
+                  {});
+    }
+
+    std::atomic_bool cancelled = false;
+    QVector<quint64> reportedCounts;
+    const auto stats = wam::core::DirectoryScanner().scan(
+            temporary.path(), cancelled, {},
+            [&reportedCounts](const QString &, quint64 filesVisited) {
+                reportedCounts.append(filesVisited);
+            });
+
+    QCOMPARE(stats.fileCount, quint64(257));
+    QCOMPARE(reportedCounts, QVector<quint64>({1, 256}));
+}
+
 void BackendTest::scannerHonorsCancellationAndExclusions()
 {
     QTemporaryDir temporary;
@@ -484,8 +572,13 @@ void BackendTest::scannerHonorsCancellationAndExclusions()
     writeFile(QDir(temporary.path()).filePath(QStringLiteral("included.bin")), QByteArray(3, 'y'));
 
     std::atomic_bool cancelled = false;
+    QString exclusion = excluded;
+#ifdef Q_OS_WIN
+    exclusion = QDir::fromNativeSeparators(
+            QDir(excluded).filePath(QStringLiteral("../Data"))).toUpper();
+#endif
     const auto stats = wam::core::DirectoryScanner().scan(
-            temporary.path(), cancelled, {}, {}, {excluded});
+            temporary.path(), cancelled, {}, {}, {exclusion});
     QCOMPARE(stats.fileCount, quint64(1));
     QCOMPARE(stats.totalSize, quint64(3));
 
@@ -494,6 +587,23 @@ void BackendTest::scannerHonorsCancellationAndExclusions()
             temporary.path(), cancelled, {}, {});
     QVERIFY(cancelledStats.cancelled);
     QCOMPARE(cancelledStats.fileCount, quint64(0));
+
+    QTemporaryDir cancellationTemporary;
+    QVERIFY(cancellationTemporary.isValid());
+    writeFile(QDir(cancellationTemporary.path()).filePath(
+                      QStringLiteral("only-file.bin")), QByteArray(4, 'z'));
+
+    cancelled.store(false);
+    quint64 visited = 0;
+    const auto interruptedStats = wam::core::DirectoryScanner().scan(
+            cancellationTemporary.path(), cancelled,
+            [&cancelled, &visited](const auto &, quint64, qint64) {
+                ++visited;
+                cancelled.store(true, std::memory_order_relaxed);
+            }, {});
+    QVERIFY(interruptedStats.cancelled);
+    QCOMPARE(interruptedStats.fileCount, visited);
+    QCOMPARE(visited, quint64(1));
 }
 
 void BackendTest::resolverProducesStableCollisionFreeIds()

@@ -81,7 +81,9 @@ public:
     Q_INVOKABLE [[nodiscard]] QVariantMap get(int index) const;
     Q_INVOKABLE [[nodiscard]] int indexOfId(const QString &applicationId) const;
 
+    [[nodiscard]] const QVector<ApplicationInfo> &applications() const;
     void setApplications(QVector<ApplicationInfo> applications);
+    void mergeScanUpdates(QVector<ApplicationInfo> applications);
     void clear();
 
 signals:
@@ -98,6 +100,7 @@ private:
     quint64 m_reclaimableSize = 0;
     quint64 m_totalFileCount = 0;
     quint64 m_protectedSize = 0;
+    quint64 m_maximumSize = 0;
     int m_recognizedCount = 0;
     int m_potentialOrphanCount = 0;
     int m_revision = 0;

@@ -8,29 +8,30 @@
 namespace wam::core {
 namespace {
 
-QString pathPart(const std::filesystem::path &path)
+QStringList components(const QString &normalizedPath)
 {
-#ifdef _WIN32
-    return QString::fromStdWString(path.generic_wstring()).toCaseFolded();
-#else
-    return QString::fromStdString(path.generic_string()).toCaseFolded();
-#endif
-}
-
-QStringList components(const std::filesystem::path &path)
-{
-    QStringList result;
-    for (const auto &component : path) {
-        const QString value = pathPart(component).trimmed();
-        if (!value.isEmpty() && value != QStringLiteral("/"))
-            result.append(value);
-    }
+    QStringList result = normalizedPath.split(
+            QLatin1Char('/'), Qt::SkipEmptyParts);
+    for (QString &component : result)
+        component = component.trimmed();
+    result.removeAll(QString {});
     return result;
 }
 
-QString normalizedPath(const std::filesystem::path &path)
+QString pathString(const std::filesystem::path &path)
 {
-    QString value = pathPart(path).trimmed();
+#ifdef _WIN32
+    const auto &nativePath = path.native();
+    return QString::fromWCharArray(
+            nativePath.data(), static_cast<qsizetype>(nativePath.size()));
+#else
+    return QString::fromStdString(path.generic_string());
+#endif
+}
+
+QString normalizedPath(QString value)
+{
+    value = value.trimmed().toCaseFolded();
     value.replace(QLatin1Char('\\'), QLatin1Char('/'));
     while (value.startsWith(QStringLiteral("./")))
         value.remove(0, 2);
@@ -39,15 +40,32 @@ QString normalizedPath(const std::filesystem::path &path)
     return value;
 }
 
-QString normalizedRulePath(QString path)
+QString normalizedPath(const std::filesystem::path &path)
 {
-    path = path.trimmed().toCaseFolded();
-    path.replace(QLatin1Char('\\'), QLatin1Char('/'));
-    while (path.startsWith(QStringLiteral("./")))
-        path.remove(0, 2);
-    while (path.endsWith(QLatin1Char('/')))
-        path.chop(1);
-    return path;
+    QString value = pathString(path);
+#ifndef _WIN32
+    value.replace(QLatin1Char('\\'), QLatin1Char('/'));
+#endif
+    return normalizedPath(std::move(value));
+}
+
+QString fileName(const QString &normalizedPath)
+{
+    const qsizetype separator = normalizedPath.lastIndexOf(QLatin1Char('/'));
+    if (separator < 0)
+        return normalizedPath.trimmed();
+    if (separator + 1 >= normalizedPath.size())
+        return {};
+    return normalizedPath.sliced(separator + 1).trimmed();
+}
+
+QStringList normalizedRulePaths(const QVector<RuleEntry> &rules)
+{
+    QStringList result;
+    result.reserve(rules.size());
+    for (const RuleEntry &entry : rules)
+        result.append(normalizedPath(entry.path));
+    return result;
 }
 
 bool hasComponent(const QStringList &values, const QStringList &candidates)
@@ -141,15 +159,16 @@ std::optional<Classification> sensitiveClassification(
 }
 
 std::optional<Classification> applicationRuleClassification(
-        const std::filesystem::path &relativePath,
+        const QString &path,
         const QVector<RuleEntry> &applicationRules,
+        const QStringList &normalizedApplicationRulePaths,
         const QString &source)
 {
-    const QString path = normalizedPath(relativePath);
     const RuleEntry *bestMatch = nullptr;
     qsizetype bestLength = -1;
-    for (const RuleEntry &entry : applicationRules) {
-        const QString prefix = normalizedRulePath(entry.path);
+    for (qsizetype index = 0; index < applicationRules.size(); ++index) {
+        const RuleEntry &entry = applicationRules.at(index);
+        const QString &prefix = normalizedApplicationRulePaths.at(index);
         if (!pathPrefixMatches(path, prefix) || prefix.size() <= bestLength)
             continue;
         bestMatch = &entry;
@@ -246,9 +265,17 @@ Classification heuristicClassification(const QStringList &pathComponents,
 
 } // namespace
 
+DataClassifier::DataClassifier(const QVector<RuleEntry> &applicationRules,
+                               QString ruleSource)
+    : m_applicationRules(applicationRules),
+      m_normalizedRulePaths(normalizedRulePaths(applicationRules)),
+      m_ruleSource(std::move(ruleSource))
+{
+}
+
 Classification DataClassifier::classify(const std::filesystem::path &relativePath) const
 {
-    return classify(relativePath, {}, {});
+    return classifyNormalizedPath(normalizedPath(relativePath));
 }
 
 Classification DataClassifier::classify(
@@ -256,16 +283,23 @@ Classification DataClassifier::classify(
         const QVector<RuleEntry> &applicationRules,
         const QString &ruleSource) const
 {
-    const QStringList pathComponents = components(relativePath);
-    const QString fileName = pathPart(relativePath.filename());
+    return DataClassifier(applicationRules, ruleSource).classify(relativePath);
+}
 
-    if (const auto sensitive = sensitiveClassification(pathComponents, fileName))
+Classification DataClassifier::classifyNormalizedPath(
+        const QString &relativePath) const
+{
+    const QStringList pathComponents = components(relativePath);
+    const QString leafName = fileName(relativePath);
+
+    if (const auto sensitive = sensitiveClassification(pathComponents, leafName))
         return *sensitive;
     if (const auto ruleMatch = applicationRuleClassification(
-                relativePath, applicationRules, ruleSource)) {
+                relativePath, m_applicationRules,
+                m_normalizedRulePaths, m_ruleSource)) {
         return *ruleMatch;
     }
-    return heuristicClassification(pathComponents, fileName);
+    return heuristicClassification(pathComponents, leafName);
 }
 
 } // namespace wam::core

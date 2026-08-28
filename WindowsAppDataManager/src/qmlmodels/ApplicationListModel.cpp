@@ -1,6 +1,7 @@
 #include "ApplicationListModel.h"
 
 #include <QLocale>
+#include <QHash>
 
 #include <algorithm>
 
@@ -29,6 +30,19 @@ QString formatSize(quint64 bytes)
 QString formatCount(quint64 value)
 {
     return QLocale().toString(value);
+}
+
+bool applicationOccupancyBefore(const ApplicationInfo &left,
+                                const ApplicationInfo &right)
+{
+    if (left.totalSize != right.totalSize)
+        return left.totalSize > right.totalSize;
+
+    const int nameOrder = QString::compare(
+            left.name, right.name, Qt::CaseInsensitive);
+    if (nameOrder != 0)
+        return nameOrder < 0;
+    return left.id < right.id;
 }
 
 QString shortName(const QString &name)
@@ -286,7 +300,8 @@ int ApplicationListModel::potentialOrphanCount() const { return m_potentialOrpha
 
 double ApplicationListModel::maximumSizeValue() const
 {
-    return m_applications.isEmpty() ? 1.0 : static_cast<double>(m_applications.constFirst().totalSize);
+    return m_applications.isEmpty()
+            ? 1.0 : static_cast<double>(m_maximumSize);
 }
 
 QVariantMap ApplicationListModel::get(int index) const
@@ -310,11 +325,15 @@ int ApplicationListModel::indexOfId(const QString &applicationId) const
             ? -1 : static_cast<int>(std::distance(m_applications.cbegin(), iterator));
 }
 
+const QVector<ApplicationInfo> &ApplicationListModel::applications() const
+{
+    return m_applications;
+}
+
 void ApplicationListModel::setApplications(QVector<ApplicationInfo> applications)
 {
-    std::sort(applications.begin(), applications.end(), [](const auto &left, const auto &right) {
-        return left.totalSize > right.totalSize;
-    });
+    std::sort(applications.begin(), applications.end(),
+              applicationOccupancyBefore);
     const bool countWillChange = applications.size() != m_applications.size();
     beginResetModel();
     m_applications = std::move(applications);
@@ -323,6 +342,110 @@ void ApplicationListModel::setApplications(QVector<ApplicationInfo> applications
     ++m_revision;
     if (countWillChange)
         emit countChanged();
+    emit revisionChanged();
+    emit summaryChanged();
+}
+
+void ApplicationListModel::mergeScanUpdates(QVector<ApplicationInfo> applications)
+{
+    QHash<QString, int> rowsById;
+    rowsById.reserve(m_applications.size() + applications.size());
+    for (int row = 0; row < m_applications.size(); ++row)
+        rowsById.insert(m_applications.at(row).id, row);
+
+    QVector<QString> changedApplicationIds;
+    QVector<ApplicationInfo> additions;
+    additions.reserve(applications.size());
+    for (ApplicationInfo &application : applications) {
+        const auto existing = rowsById.constFind(application.id);
+        if (existing == rowsById.cend()) {
+            // Negative values identify rows that have not been inserted yet.
+            // This also lets the latest value win if a coalesced batch happens
+            // to contain the same application more than once.
+            rowsById.insert(application.id, -additions.size() - 1);
+            additions.append(std::move(application));
+            continue;
+        }
+
+        const int row = existing.value();
+        if (row < 0) {
+            additions[-row - 1] = std::move(application);
+            continue;
+        }
+        if (m_applications.at(row) == application)
+            continue;
+        changedApplicationIds.append(application.id);
+        m_applications[row] = std::move(application);
+    }
+
+    if (changedApplicationIds.isEmpty() && additions.isEmpty())
+        return;
+
+    const int firstAddition = m_applications.size();
+    if (!additions.isEmpty()) {
+        beginInsertRows({}, firstAddition,
+                        firstAddition + additions.size() - 1);
+        m_applications += std::move(additions);
+        endInsertRows();
+        emit countChanged();
+    }
+
+    if (!std::is_sorted(m_applications.cbegin(), m_applications.cend(),
+                        applicationOccupancyBefore)) {
+        const QModelIndexList oldPersistentIndexes = persistentIndexList();
+        QVector<QString> persistentApplicationIds;
+        persistentApplicationIds.reserve(oldPersistentIndexes.size());
+        for (const QModelIndex &persistentIndex : oldPersistentIndexes) {
+            persistentApplicationIds.append(
+                    persistentIndex.isValid()
+                            ? m_applications.at(persistentIndex.row()).id
+                            : QString());
+        }
+
+        emit layoutAboutToBeChanged({},
+                                    QAbstractItemModel::VerticalSortHint);
+        std::sort(m_applications.begin(), m_applications.end(),
+                  applicationOccupancyBefore);
+
+        QHash<QString, int> sortedRowsById;
+        sortedRowsById.reserve(m_applications.size());
+        for (int row = 0; row < m_applications.size(); ++row)
+            sortedRowsById.insert(m_applications.at(row).id, row);
+
+        QModelIndexList newPersistentIndexes;
+        newPersistentIndexes.reserve(oldPersistentIndexes.size());
+        for (const QString &applicationId : persistentApplicationIds) {
+            const auto sortedRow = sortedRowsById.constFind(applicationId);
+            newPersistentIndexes.append(
+                    sortedRow == sortedRowsById.cend()
+                            ? QModelIndex() : index(sortedRow.value(), 0));
+        }
+        changePersistentIndexList(oldPersistentIndexes,
+                                  newPersistentIndexes);
+        emit layoutChanged({}, QAbstractItemModel::VerticalSortHint);
+    }
+
+    updateSummary();
+
+    // One contiguous notification lets the dynamic proxy filter and sort once
+    // per published batch instead of once per completed scan unit.
+    if (!changedApplicationIds.isEmpty()) {
+        int firstChangedRow = m_applications.size();
+        int lastChangedRow = -1;
+        for (const QString &applicationId : changedApplicationIds) {
+            const int row = indexOfId(applicationId);
+            if (row < 0)
+                continue;
+            firstChangedRow = std::min(firstChangedRow, row);
+            lastChangedRow = std::max(lastChangedRow, row);
+        }
+        if (lastChangedRow >= firstChangedRow) {
+            emit dataChanged(index(firstChangedRow, 0),
+                             index(lastChangedRow, 0));
+        }
+    }
+
+    ++m_revision;
     emit revisionChanged();
     emit summaryChanged();
 }
@@ -374,6 +497,7 @@ void ApplicationListModel::updateSummary()
     m_reclaimableSize = 0;
     m_totalFileCount = 0;
     m_protectedSize = 0;
+    m_maximumSize = 0;
     m_recognizedCount = 0;
     m_potentialOrphanCount = 0;
     for (const ApplicationInfo &application : std::as_const(m_applications)) {
@@ -381,6 +505,7 @@ void ApplicationListModel::updateSummary()
         m_reclaimableSize += application.reclaimableSize;
         m_totalFileCount += application.fileCount;
         m_protectedSize += application.protectedSize;
+        m_maximumSize = std::max(m_maximumSize, application.totalSize);
         if (application.confidence >= 50)
             ++m_recognizedCount;
         if (application.installState == InstallState::PotentialOrphan)

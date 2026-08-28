@@ -4,6 +4,8 @@
 #include "../../platform/windows/filesystem/ReparsePoint.h"
 
 #include <QDateTime>
+#include <QDir>
+#include <QSet>
 
 #include <algorithm>
 #include <chrono>
@@ -17,7 +19,9 @@ constexpr qsizetype maximumReportedIssues = 100;
 QString pathToQString(const std::filesystem::path &path)
 {
 #ifdef _WIN32
-    return QString::fromStdWString(path.wstring());
+    const auto &nativePath = path.native();
+    return QString::fromWCharArray(
+            nativePath.data(), static_cast<qsizetype>(nativePath.size()));
 #else
     return QString::fromStdString(path.string());
 #endif
@@ -93,14 +97,14 @@ struct ScanPassResult {
     MetadataFingerprint fingerprint;
 };
 
-bool pathsEqual(const std::filesystem::path &left, const std::filesystem::path &right)
+QString pathKey(const std::filesystem::path &path)
 {
+    QString key = QDir::fromNativeSeparators(
+            pathToQString(path.lexically_normal()));
 #ifdef _WIN32
-    return pathToQString(left.lexically_normal()).compare(
-            pathToQString(right.lexically_normal()), Qt::CaseInsensitive) == 0;
-#else
-    return left.lexically_normal() == right.lexically_normal();
+    key = key.toCaseFolded();
 #endif
+    return key;
 }
 
 ScanPassResult scanPass(
@@ -108,7 +112,8 @@ ScanPassResult scanPass(
         const std::atomic_bool &cancelRequested,
         const DirectoryScanner::FileVisitor &visitor,
         const DirectoryScanner::StatusCallback &statusCallback,
-        const QVector<std::filesystem::path> &exclusions)
+        const QSet<QString> &exclusions,
+        bool collectMetadataFingerprint)
 {
     ScanPassResult result;
     DirectoryScanStats &stats = result.stats;
@@ -138,12 +143,10 @@ ScanPassResult scanPass(
             break;
         }
 
-        const std::filesystem::directory_entry entry = *iterator;
+        const std::filesystem::directory_entry &entry = *iterator;
         const std::filesystem::path path = entry.path();
-        const bool excluded = std::any_of(
-                exclusions.cbegin(), exclusions.cend(), [&path](const auto &candidate) {
-            return pathsEqual(path, candidate);
-        });
+        const bool excluded = !exclusions.isEmpty()
+                && exclusions.contains(pathKey(path));
         if (excluded) {
             error.clear();
             if (entry.is_directory(error) && !error)
@@ -170,21 +173,26 @@ ScanPassResult scanPass(
                 const auto modified = entry.last_write_time(error);
                 const qint64 modifiedMilliseconds = error ? 0 : toMilliseconds(modified);
                 const quint64 size = static_cast<quint64>(rawSize);
+                const std::filesystem::path relativePath =
+                        path.lexically_relative(rootPath);
 
                 stats.totalSize += size;
                 ++stats.fileCount;
                 stats.latestModifiedMilliseconds = std::max(
                         stats.latestModifiedMilliseconds, modifiedMilliseconds);
-                if (!error) {
+                if (!error && collectMetadataFingerprint) {
                     result.fingerprint.add(
-                            pathToQString(path.lexically_relative(rootPath)),
+                            pathToQString(relativePath),
                             size, modifiedMilliseconds);
                 }
                 if (visitor)
-                    visitor(path.lexically_relative(rootPath), size, modifiedMilliseconds);
+                    visitor(relativePath, size, modifiedMilliseconds);
 
-                if (statusCallback && (stats.fileCount & 0x3ffU) == 0)
+                if (statusCallback
+                        && (stats.fileCount == 1
+                            || (stats.fileCount & 0xffU) == 0)) {
                     statusCallback(pathToQString(path), stats.fileCount);
+                }
             }
         }
 
@@ -199,7 +207,12 @@ ScanPassResult scanPass(
         }
     }
 
-    stats.metadataFingerprint = result.fingerprint.value();
+    if (!stats.cancelled
+            && cancelRequested.load(std::memory_order_relaxed)) {
+        stats.cancelled = true;
+    }
+    if (collectMetadataFingerprint)
+        stats.metadataFingerprint = result.fingerprint.value();
     return result;
 }
 
@@ -212,20 +225,36 @@ DirectoryScanStats DirectoryScanner::scan(const QString &root,
                                           const QStringList &excludedPaths,
                                           bool verifyStability) const
 {
+    return scan(root, cancelRequested, visitor, statusCallback,
+                excludedPaths, verifyStability, true);
+}
+
+DirectoryScanStats DirectoryScanner::scan(const QString &root,
+                                          const std::atomic_bool &cancelRequested,
+                                          const FileVisitor &visitor,
+                                          const StatusCallback &statusCallback,
+                                          const QStringList &excludedPaths,
+                                          bool verifyStability,
+                                          bool collectMetadataFingerprint) const
+{
     const std::filesystem::path rootPath = stringToPath(root);
 
-    QVector<std::filesystem::path> exclusions;
+    QSet<QString> exclusions;
     exclusions.reserve(excludedPaths.size());
     for (const QString &path : excludedPaths)
-        exclusions.append(stringToPath(path));
+        exclusions.insert(pathKey(stringToPath(path)));
+
+    const bool collectFingerprint = verifyStability
+            || collectMetadataFingerprint;
 
     ScanPassResult first = scanPass(
-            rootPath, cancelRequested, visitor, statusCallback, exclusions);
+            rootPath, cancelRequested, visitor, statusCallback,
+            exclusions, collectFingerprint);
     if (!verifyStability || first.stats.cancelled || !first.stats.issues.isEmpty())
         return first.stats;
 
     const ScanPassResult verification = scanPass(
-            rootPath, cancelRequested, {}, {}, exclusions);
+            rootPath, cancelRequested, {}, {}, exclusions, true);
     if (verification.stats.cancelled)
         first.stats.cancelled = true;
     first.stats.issues += verification.stats.issues;

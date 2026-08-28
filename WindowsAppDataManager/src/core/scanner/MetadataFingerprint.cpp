@@ -3,6 +3,10 @@
 #include <QCryptographicHash>
 #include <QDir>
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+#include <array>
+#endif
+
 namespace wam::core {
 
 MetadataFingerprint::MetadataFingerprint()
@@ -20,12 +24,19 @@ void MetadataFingerprint::add(const QString &relativePath,
     normalizedPath = QDir::cleanPath(normalizedPath).toCaseFolded();
 
     QByteArray value = normalizedPath.toUtf8();
+    value.reserve(value.size() + 48);
     value.append('\0');
     value.append(QByteArray::number(size));
     value.append('\0');
     value.append(QByteArray::number(modifiedMilliseconds));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    std::array<char, 32> digestBuffer {};
+    const QByteArrayView entryDigest = QCryptographicHash::hashInto(
+            QSpan<char>(digestBuffer), value, QCryptographicHash::Sha256);
+#else
     const QByteArray entryDigest = QCryptographicHash::hash(
             value, QCryptographicHash::Sha256);
+#endif
     for (qsizetype index = 0; index < m_digest.size(); ++index)
         m_digest[index] = static_cast<char>(m_digest.at(index) ^ entryDigest.at(index));
     ++m_entryCount;

@@ -3,7 +3,10 @@
 #include "src/qmlmodels/ScanViewModel.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -45,10 +48,16 @@ class QmlModelsTest final : public QObject {
 
 private slots:
     void applicationListFindsStableIdsAndExposesAccentIndices();
+    void applicationListMergesScanUpdatesWithoutReset();
     void applicationListExposesIndependentOrphanAssessment();
     void applicationFilterCombinesSearchAndExactFilters();
     void applicationFilterSortsAndMapsSourceRows();
+    void scanServicePublishesCompletedTargetUpdates();
+    void scanServiceBoundsProgressiveUpdateDelivery();
     void viewModelPublishesBackgroundScan();
+    void viewModelBatchesLargeScanUpdates();
+    void viewModelKeepsInterleavedProgressMonotonic();
+    void viewModelPreservesAcceptedIssuesAcrossInterruptedScan();
     void viewModelAppliesBuiltInRules();
 };
 
@@ -108,6 +117,62 @@ void QmlModelsTest::applicationListFindsStableIdsAndExposesAccentIndices()
     QCOMPARE(applications.indexOfId(QStringLiteral("alpha")), 0);
     QCOMPARE(applications.indexOfId(QStringLiteral("gamma")), 1);
     QCOMPARE(applications.indexOfId(QStringLiteral("beta")), 2);
+}
+
+void QmlModelsTest::applicationListMergesScanUpdatesWithoutReset()
+{
+    using wam::InstallState;
+    using wam::RiskLevel;
+
+    wam::qmlmodels::ApplicationListModel applications;
+    wam::ApplicationInfo alpha = application(
+            QStringLiteral("alpha"), QStringLiteral("Alpha"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 10,
+            RiskLevel::Safe, InstallState::Installed);
+    applications.setApplications({alpha});
+
+    QSignalSpy resetSpy(&applications, &QAbstractItemModel::modelReset);
+    QSignalSpy insertedSpy(&applications, &QAbstractItemModel::rowsInserted);
+    QSignalSpy changedSpy(&applications, &QAbstractItemModel::dataChanged);
+    QSignalSpy revisionSpy(
+            &applications, &wam::qmlmodels::ApplicationListModel::revisionChanged);
+
+    alpha.totalSize = 50;
+    wam::ApplicationInfo beta = application(
+            QStringLiteral("beta"), QStringLiteral("Beta"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 20,
+            RiskLevel::Low, InstallState::Installed);
+    applications.mergeScanUpdates({alpha, beta});
+
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(insertedSpy.count(), 1);
+    QCOMPARE(changedSpy.count(), 1);
+    QCOMPARE(revisionSpy.count(), 1);
+    QCOMPARE(applications.count(), 2);
+    QCOMPARE(applications.get(applications.indexOfId(QStringLiteral("alpha")))
+                     .value(QStringLiteral("sizeValue")).toULongLong(),
+             50ULL);
+    QCOMPARE(applications.maximumSizeValue(), 50.0);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("alpha"));
+
+    applications.mergeScanUpdates({alpha, beta});
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(insertedSpy.count(), 1);
+    QCOMPARE(changedSpy.count(), 1);
+    QCOMPARE(revisionSpy.count(), 1);
+
+    wam::ApplicationInfo gamma = application(
+            QStringLiteral("gamma"), QStringLiteral("Gamma"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 75,
+            RiskLevel::Low, InstallState::Installed);
+    applications.mergeScanUpdates({gamma});
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("gamma"));
+    QCOMPARE(applications.get(1).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("alpha"));
+    QCOMPARE(applications.get(2).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("beta"));
 }
 
 void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
@@ -341,6 +406,104 @@ void QmlModelsTest::applicationFilterSortsAndMapsSourceRows()
     }
 }
 
+void QmlModelsTest::scanServicePublishesCompletedTargetUpdates()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString alpha = QDir(temporary.path()).filePath(
+            QStringLiteral("Alpha/Cache"));
+    const QString beta = QDir(temporary.path()).filePath(
+            QStringLiteral("Beta/Logs"));
+    QVERIFY(QDir().mkpath(alpha));
+    QVERIFY(QDir().mkpath(beta));
+    writeFile(QDir(alpha).filePath(QStringLiteral("cache.bin")),
+              QByteArray(7, 'a'));
+    writeFile(QDir(beta).filePath(QStringLiteral("latest.log")),
+              QByteArray(11, 'b'));
+
+    wam::services::ScanService service;
+    QSignalSpy updateSpy(
+            &service, &wam::services::ScanService::scanUpdatesReady);
+    QSignalSpy completedSpy(
+            &service, &wam::services::ScanService::scanCompleted);
+    QSignalSpy progressSpy(
+            &service, &wam::services::ScanService::progressChanged);
+
+    service.startScan({temporary.path()});
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, 5000);
+
+    QVERIFY(!updateSpy.isEmpty());
+    QVERIFY(updateSpy.count() <= 2);
+    int previousCompletedTargets = 0;
+    for (int index = 0; index < updateSpy.size(); ++index) {
+        const QList<QVariant> arguments = updateSpy.at(index);
+        const QVector<wam::ApplicationInfo> updates =
+                qvariant_cast<QVector<wam::ApplicationInfo>>(arguments.at(0));
+        QCOMPARE(arguments.at(1).toInt(), 0);
+        const int completedTargets = arguments.at(2).toInt();
+        QVERIFY(completedTargets > previousCompletedTargets);
+        previousCompletedTargets = completedTargets;
+        QCOMPARE(arguments.at(3).toInt(), 2);
+        QVERIFY(!updates.isEmpty());
+        QVERIFY(updates.size() <= completedTargets);
+    }
+
+    const wam::ScanResult finalResult = qvariant_cast<wam::ScanResult>(
+            completedSpy.constFirst().constFirst());
+    QCOMPARE(finalResult.applications.size(), 2);
+    QVERIFY(!finalResult.cancelled);
+
+    QVERIFY(!progressSpy.isEmpty());
+    int previousProgress = 0;
+    for (const QList<QVariant> &arguments : progressSpy) {
+        const int progress = arguments.constFirst().toInt();
+        QVERIFY(progress >= previousProgress);
+        QVERIFY(progress <= 100);
+        previousProgress = progress;
+    }
+    QCOMPARE(previousProgress, 100);
+}
+
+void QmlModelsTest::scanServiceBoundsProgressiveUpdateDelivery()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+
+    constexpr int targetCount = 96;
+    for (int index = 0; index < targetCount; ++index) {
+        const QString cache = QDir(temporary.path()).filePath(
+                QStringLiteral("App-%1/Cache")
+                        .arg(index, 3, 10, QLatin1Char('0')));
+        QVERIFY(QDir().mkpath(cache));
+        writeFile(QDir(cache).filePath(QStringLiteral("cache.bin")),
+                  QByteArray(1, 'x'));
+    }
+
+    wam::services::ScanService service;
+    QSignalSpy updateSpy(
+            &service, &wam::services::ScanService::scanUpdatesReady);
+    QSignalSpy completedSpy(
+            &service, &wam::services::ScanService::scanCompleted);
+    QElapsedTimer elapsed;
+    elapsed.start();
+
+    service.startScan({temporary.path()});
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, 10000);
+
+    QVERIFY(!updateSpy.isEmpty());
+    const int maximumDeliveries =
+            static_cast<int>(elapsed.elapsed() / 50) + 2;
+    QVERIFY2(updateSpy.count() <= maximumDeliveries,
+             qPrintable(QStringLiteral("%1 次更新超过 %2 次节流上限")
+                                .arg(updateSpy.count())
+                                .arg(maximumDeliveries)));
+
+    const wam::ScanResult finalResult = qvariant_cast<wam::ScanResult>(
+            completedSpy.constFirst().constFirst());
+    QCOMPARE(finalResult.applications.size(), targetCount);
+    QVERIFY(!finalResult.cancelled);
+}
+
 void QmlModelsTest::viewModelPublishesBackgroundScan()
 {
     QTemporaryDir temporary;
@@ -358,12 +521,35 @@ void QmlModelsTest::viewModelPublishesBackgroundScan()
 
     wam::qmlmodels::ApplicationListModel applications;
     wam::qmlmodels::ScanViewModel scan(&applications);
+    auto *service = scan.findChild<wam::services::ScanService *>();
+    QVERIFY(service);
     QSignalSpy revisionSpy(&applications, &wam::qmlmodels::ApplicationListModel::revisionChanged);
+    QSignalSpy updateSpy(
+            service, &wam::services::ScanService::scanUpdatesReady);
+    QSignalSpy completedSpy(
+            service, &wam::services::ScanService::scanCompleted);
+    QSignalSpy resetSpy(&applications, &QAbstractItemModel::modelReset);
     scan.startScan();
-    QVERIFY(revisionSpy.wait(5000));
+    QCOMPARE(resetSpy.count(), 1);
+    resetSpy.clear();
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 5000);
 
-    QVERIFY(!scan.running());
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(updateSpy.count(), 1);
+    QVERIFY(revisionSpy.count() >= 2);
     QCOMPARE(scan.progress(), 100);
+    QVERIFY(!scan.recentPaths().isEmpty());
+    QVERIFY(scan.recentPaths().size() <= 5);
+    const QStringList firstRecentPaths = scan.recentPaths();
+    QSet<QString> uniqueRecentPaths;
+    for (const QString &path : firstRecentPaths)
+        uniqueRecentPaths.insert(path);
+    QCOMPARE(firstRecentPaths.size(), uniqueRecentPaths.size());
+    QVERIFY(std::any_of(firstRecentPaths.cbegin(), firstRecentPaths.cend(),
+                        [](const QString &path) {
+        return QFileInfo(path).isFile();
+    }));
     QCOMPARE(applications.count(), 1);
     const QVariantMap application = applications.get(0);
     QCOMPARE(application.value(QStringLiteral("riskLevel")).toInt(),
@@ -373,10 +559,213 @@ void QmlModelsTest::viewModelPublishesBackgroundScan()
     QCOMPARE(application.value(QStringLiteral("unknownSizeText")).toString(),
              QStringLiteral("13 B"));
 
+    revisionSpy.clear();
+    updateSpy.clear();
+    completedSpy.clear();
+    scan.startScan();
+    QCOMPARE(resetSpy.count(), 1);
+    resetSpy.clear();
+    QVERIFY(scan.running());
+    QVERIFY(scan.recentPaths().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 5000);
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(updateSpy.count(), 1);
+    QVERIFY(revisionSpy.count() >= 2);
+    QVERIFY(!scan.recentPaths().isEmpty());
+
     if (previousRoot.isNull())
         qunsetenv("WAM_SCAN_ROOT");
     else
         qputenv("WAM_SCAN_ROOT", previousRoot);
+}
+
+void QmlModelsTest::viewModelBatchesLargeScanUpdates()
+{
+    wam::qmlmodels::ApplicationListModel applications;
+    wam::qmlmodels::ScanViewModel scan(&applications);
+    auto *service = scan.findChild<wam::services::ScanService *>();
+    QVERIFY(service);
+
+    QSignalSpy resetSpy(&applications, &QAbstractItemModel::modelReset);
+    QSignalSpy insertedSpy(&applications, &QAbstractItemModel::rowsInserted);
+    QSignalSpy acceptedSpy(
+            &scan, &wam::qmlmodels::ScanViewModel::scanResultAccepted);
+
+    QVector<wam::ApplicationInfo> updates;
+    constexpr int applicationCount = 80;
+    updates.reserve(applicationCount);
+    for (int index = 0; index < applicationCount; ++index) {
+        updates.append(application(
+                QStringLiteral("app-%1").arg(index, 3, 10, QLatin1Char('0')),
+                QStringLiteral("Application %1").arg(index),
+                QStringLiteral("Vendor"), QStringLiteral("工具"),
+                static_cast<quint64>(index + 1),
+                wam::RiskLevel::Low, wam::InstallState::Installed));
+    }
+
+    service->scanStarted();
+    resetSpy.clear();
+    service->scanUpdatesReady(updates, 0, applicationCount, applicationCount);
+
+    QCOMPARE(applications.count(), 24);
+    QTRY_COMPARE_WITH_TIMEOUT(applications.count(), applicationCount, 2000);
+    QCOMPARE(applications.get(0).value(QStringLiteral("sizeValue")).toULongLong(),
+             static_cast<quint64>(applicationCount));
+    QCOMPARE(applications.get(applicationCount - 1)
+                     .value(QStringLiteral("sizeValue")).toULongLong(),
+             1ULL);
+    QCOMPARE(resetSpy.count(), 0);
+    QVERIFY(insertedSpy.size() >= 4);
+    for (const QList<QVariant> &arguments : insertedSpy) {
+        const int first = arguments.at(1).toInt();
+        const int last = arguments.at(2).toInt();
+        QVERIFY(last >= first);
+        QVERIFY(last - first + 1 <= 24);
+    }
+
+    wam::ScanResult finalResult;
+    finalResult.applications = updates;
+    service->scanCompleted(finalResult);
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 2000);
+    QCOMPARE(applications.count(), applicationCount);
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(acceptedSpy.count(), 1);
+}
+
+void QmlModelsTest::viewModelKeepsInterleavedProgressMonotonic()
+{
+    wam::qmlmodels::ApplicationListModel applications;
+    wam::qmlmodels::ScanViewModel scan(&applications);
+    auto *service = scan.findChild<wam::services::ScanService *>();
+    QVERIFY(service);
+
+    QVector<int> observedProgress;
+    connect(&scan, &wam::qmlmodels::ScanViewModel::progressChanged,
+            &scan, [&scan, &observedProgress] {
+        observedProgress.append(scan.progress());
+    });
+    service->scanStarted();
+    service->scanUpdatesReady({}, 0, 96, 100);
+    QCOMPARE(scan.progress(), 96);
+
+    service->progressChanged(2, QStringLiteral("C:/扫描/较早路径"));
+    QCOMPARE(scan.progress(), 96);
+    QCOMPARE(scan.currentPath(), QDir::toNativeSeparators(
+                                      QStringLiteral("C:/扫描/较早路径")));
+
+    service->progressChanged(97, QStringLiteral("C:/扫描/当前路径"));
+    QCOMPARE(scan.progress(), 97);
+    service->scanUpdatesReady({}, 0, 90, 100);
+    QCOMPARE(scan.progress(), 97);
+    service->progressChanged(100, {});
+    QCOMPARE(scan.progress(), 100);
+
+    int previousProgress = 0;
+    for (const int progress : observedProgress) {
+        QVERIFY(progress >= previousProgress);
+        previousProgress = progress;
+    }
+
+    service->scanCompleted({});
+    QVERIFY(!scan.running());
+}
+
+void QmlModelsTest::viewModelPreservesAcceptedIssuesAcrossInterruptedScan()
+{
+    wam::qmlmodels::ApplicationListModel applications;
+    wam::qmlmodels::ScanViewModel scan(&applications);
+    auto *service = scan.findChild<wam::services::ScanService *>();
+    QVERIFY(service);
+
+    wam::ScanResult accepted;
+    accepted.applications.append(application(
+            QStringLiteral("accepted"), QStringLiteral("Accepted App"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 42,
+            wam::RiskLevel::Low, wam::InstallState::Installed));
+    accepted.issues.append(wam::ScanIssue {});
+    accepted.issues.append(wam::ScanIssue {});
+
+    service->scanStarted();
+    service->scanCompleted(accepted);
+    QCOMPARE(scan.issueCount(), 2);
+    QVERIFY(scan.partialResult());
+    QCOMPARE(applications.count(), 1);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("accepted"));
+
+    QSignalSpy acceptedSpy(&scan, &wam::qmlmodels::ScanViewModel::scanResultAccepted);
+    wam::ScanResult incremental;
+    incremental.applications.append(application(
+            QStringLiteral("incremental"), QStringLiteral("Incremental App"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 128,
+            wam::RiskLevel::Unknown, wam::InstallState::Unknown));
+    for (int index = 0; index < 4; ++index)
+        incremental.issues.append(wam::ScanIssue {});
+
+    wam::ScanResult cancelled;
+    cancelled.cancelled = true;
+    for (int index = 0; index < 5; ++index)
+        cancelled.issues.append(wam::ScanIssue {});
+
+    service->scanStarted();
+    QCOMPARE(applications.count(), 0);
+    QCOMPARE(scan.issueCount(), 0);
+    service->scanCompleted(cancelled);
+    QCOMPARE(applications.count(), 1);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("accepted"));
+    QCOMPARE(scan.issueCount(), 2);
+    QCOMPARE(acceptedSpy.count(), 0);
+
+    service->scanStarted();
+    QCOMPARE(applications.count(), 0);
+    QCOMPARE(scan.issueCount(), 0);
+    service->scanUpdatesReady(incremental.applications,
+                              incremental.issues.size(), 1, 3);
+    QCOMPARE(applications.count(), 1);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("incremental"));
+    QCOMPARE(scan.issueCount(), 4);
+    QCOMPARE(scan.progress(), 33);
+    QCOMPARE(acceptedSpy.count(), 0);
+    service->scanCompleted(cancelled);
+    QCOMPARE(scan.issueCount(), 2);
+    QVERIFY(scan.partialResult());
+    QCOMPARE(applications.count(), 1);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("accepted"));
+    QCOMPARE(applications.get(0).value(QStringLiteral("sizeValue")).toULongLong(),
+             42ULL);
+    QCOMPARE(acceptedSpy.count(), 0);
+    QCOMPARE(scan.statusText(), QStringLiteral("扫描已取消，保留上一次完整结果"));
+
+    service->scanStarted();
+    QCOMPARE(scan.issueCount(), 0);
+    service->scanUpdatesReady(incremental.applications,
+                              incremental.issues.size(), 1, 2);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("incremental"));
+    QCOMPARE(acceptedSpy.count(), 0);
+    service->scanFailed(QStringLiteral("扫描未能完成"),
+                        QStringLiteral("测试错误"));
+    QCOMPARE(scan.issueCount(), 2);
+    QVERIFY(scan.partialResult());
+    QCOMPARE(applications.count(), 1);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("accepted"));
+    QCOMPARE(acceptedSpy.count(), 0);
+    QCOMPARE(scan.errorMessage(), QStringLiteral("扫描未能完成"));
+
+    service->scanStarted();
+    service->scanUpdatesReady(incremental.applications,
+                              incremental.issues.size(), 1, 1);
+    QCOMPARE(acceptedSpy.count(), 0);
+    service->scanCompleted(incremental);
+    QCOMPARE(acceptedSpy.count(), 1);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("incremental"));
+    QCOMPARE(scan.issueCount(), 4);
 }
 
 void QmlModelsTest::viewModelAppliesBuiltInRules()
@@ -397,9 +786,13 @@ void QmlModelsTest::viewModelAppliesBuiltInRules()
 
     wam::qmlmodels::ApplicationListModel applications;
     wam::qmlmodels::ScanViewModel scan(&applications);
-    QSignalSpy revisionSpy(&applications, &wam::qmlmodels::ApplicationListModel::revisionChanged);
+    auto *service = scan.findChild<wam::services::ScanService *>();
+    QVERIFY(service);
+    QSignalSpy completedSpy(
+            service, &wam::services::ScanService::scanCompleted);
     scan.startScan();
-    QVERIFY(revisionSpy.wait(5000));
+    QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 5000);
 
     QCOMPARE(applications.count(), 1);
     const QVariantMap application = applications.get(0);

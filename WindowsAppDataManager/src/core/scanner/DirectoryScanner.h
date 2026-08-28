@@ -33,6 +33,13 @@ public:
                                           const StatusCallback &statusCallback,
                                           const QStringList &excludedPaths = {},
                                           bool verifyStability = false) const;
+    [[nodiscard]] DirectoryScanStats scan(const QString &root,
+                                          const std::atomic_bool &cancelRequested,
+                                          const FileVisitor &visitor,
+                                          const StatusCallback &statusCallback,
+                                          const QStringList &excludedPaths,
+                                          bool verifyStability,
+                                          bool collectMetadataFingerprint) const;
 };
 
 } // namespace wam::core

@@ -72,6 +72,8 @@ struct EvidenceInfo {
     EvidenceSource source = EvidenceSource::Folder;
     EvidenceStatus status = EvidenceStatus::Unavailable;
     QString detail;
+
+    bool operator==(const EvidenceInfo &) const = default;
 };
 
 struct OrphanAssessment {
@@ -82,6 +84,8 @@ struct OrphanAssessment {
     QStringList blockingReasons;
     QDateTime assessedAt;
     bool evaluated = false;
+
+    bool operator==(const OrphanAssessment &) const = default;
 };
 
 struct DataGroupInfo {
@@ -94,6 +98,8 @@ struct DataGroupInfo {
     QString impact;
     QString path;
     QString ruleSource;
+
+    bool operator==(const DataGroupInfo &) const = default;
 };
 
 struct CleanupCandidateInfo {
@@ -121,6 +127,8 @@ struct CleanupCandidateInfo {
     bool exclusiveLocation = false;
     bool scanComplete = false;
     bool containsUnsafeData = false;
+
+    bool operator==(const CleanupCandidateInfo &) const = default;
 };
 
 struct ApplicationInfo {
@@ -149,6 +157,8 @@ struct ApplicationInfo {
     QVector<DataGroupInfo> dataGroups;
     QVector<EvidenceInfo> evidence;
     QVector<CleanupCandidateInfo> cleanupCandidates;
+
+    bool operator==(const ApplicationInfo &) const = default;
 };
 
 } // namespace wam
