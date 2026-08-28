@@ -20,6 +20,7 @@ Item {
     property bool selectionEnabled: true
 
     signal selectionChanged(int index, bool selected)
+    signal focusRequested(int index)
 
     readonly property bool pending: state === 0
     readonly property color stateColor: state === 4 ? Theme.greenText
@@ -29,6 +30,12 @@ Item {
 
     height: 68
 
+    InsetStateLayer {
+        anchors.fill: parent
+        selected: row.selected
+        focused: selectionCheckBox.activeFocus
+    }
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 12
@@ -36,6 +43,8 @@ Item {
         spacing: 10
 
         CheckBox {
+            id: selectionCheckBox
+
             Layout.preferredWidth: 26
             Layout.preferredHeight: 26
             checked: row.selected
@@ -46,6 +55,10 @@ Item {
                                     + (row.statusMessage.length > 0
                                        ? row.statusMessage : row.impact)
                                     + "。路径 " + row.path
+            onActiveFocusChanged: {
+                if (activeFocus)
+                    row.focusRequested(row.index)
+            }
             onToggled: row.selectionChanged(row.index, checked)
         }
 

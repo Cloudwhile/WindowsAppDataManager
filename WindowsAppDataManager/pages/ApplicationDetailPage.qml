@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-Flickable {
+FocusAwareFlickable {
     id: page
 
     required property var application
@@ -26,8 +26,14 @@ Flickable {
             spacing: 8
 
             IconButton {
+                id: backButton
+
                 iconSource: Qt.resolvedUrl("../resources/Icons/TablerChevronLeft.svg")
                 tooltip: "返回应用列表"
+                onActiveFocusChanged: {
+                    if (activeFocus)
+                        page.revealItem(backButton)
+                }
                 onClicked: page.backRequested()
             }
 
@@ -56,6 +62,7 @@ Flickable {
             id: detailContent
             width: parent.width
             application: page.application
+            onFocusRequested: item => page.revealItem(item)
         }
     }
 }

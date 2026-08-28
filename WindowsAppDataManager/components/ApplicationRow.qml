@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 
-Rectangle {
+Item {
     id: row
 
     required property var rowData
@@ -10,17 +10,22 @@ Rectangle {
 
     signal activated(int index)
 
-    height: 50
+    height: 46
     activeFocusOnTab: true
-    color: selected ? Theme.surfaceSelected
-                    : activeFocus || mouseArea.containsMouse ? Theme.surfaceHover : "transparent"
+
+    InsetStateLayer {
+        anchors.fill: parent
+        selected: row.selected
+        hovered: mouseArea.containsMouse
+        focused: row.activeFocus
+        focusWidth: 2
+    }
 
     Accessible.role: Accessible.ListItem
     Accessible.name: rowData.appName + "，" + rowData.sizeText + "，" + rowData.riskText
-
-    Behavior on color {
-        ColorAnimation { duration: Motion.fast }
-    }
+    Accessible.description: "路径 " + rowData.location + "，分类 " + rowData.category
+                            + "，文件数 " + rowData.fileCount
+    Accessible.onPressAction: row.activated(row.rowIndex)
 
     RowLayout {
         anchors.fill: parent
@@ -29,9 +34,9 @@ Rectangle {
         spacing: 10
 
         Rectangle {
-            Layout.preferredWidth: 28
-            Layout.preferredHeight: 28
-            radius: 7
+            Layout.preferredWidth: 26
+            Layout.preferredHeight: 26
+            radius: 6
             color: Theme.applicationAccent(row.rowData.accentIndex)
 
             Text {
@@ -45,7 +50,7 @@ Rectangle {
 
         Text {
             Layout.preferredWidth: 150
-            Layout.minimumWidth: 105
+            Layout.minimumWidth: 100
             Layout.fillWidth: true
             text: row.rowData.appName
             color: Theme.textPrimary
@@ -55,12 +60,22 @@ Rectangle {
         }
 
         Text {
-            Layout.preferredWidth: 92
-            Layout.maximumWidth: 110
-            visible: row.width > 560
+            Layout.preferredWidth: 174
+            Layout.minimumWidth: 116
+            visible: row.width > 740
+            text: row.rowData.location
+            color: Theme.textSecondary
+            font.pixelSize: 11
+            elide: Text.ElideMiddle
+        }
+
+        Text {
+            Layout.preferredWidth: 82
+            Layout.maximumWidth: 96
+            visible: row.width > 610
             text: row.rowData.category
             color: Theme.textSecondary
-            font.pixelSize: 12
+            font.pixelSize: 11
             elide: Text.ElideRight
         }
 
@@ -72,6 +87,16 @@ Rectangle {
             horizontalAlignment: Text.AlignRight
         }
 
+        Text {
+            Layout.preferredWidth: 64
+            visible: row.width > 720
+            text: row.rowData.fileCount
+            color: Theme.textSecondary
+            font.pixelSize: 11
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideLeft
+        }
+
         RiskBadge {
             Layout.preferredWidth: 72
             level: row.rowData.riskLevel
@@ -80,7 +105,7 @@ Rectangle {
 
         Text {
             Layout.preferredWidth: 88
-            visible: row.width > 650
+            visible: row.width > 1000
             text: row.rowData.modified
             color: Theme.textMuted
             font.pixelSize: 11
@@ -100,6 +125,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 1
+        visible: !row.activeFocus
         color: Theme.divider
     }
 

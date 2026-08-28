@@ -1,33 +1,38 @@
 import QtQuick
 import QtQuick.Layouts
 
-Rectangle {
+Item {
     id: categoryRow
 
     required property var rowData
     property bool expanded: false
+
+    signal focusRequested(Item item)
 
     function toggleExpanded() {
         expanded = !expanded
     }
 
     implicitHeight: contentColumn.implicitHeight + 20
-    radius: Theme.radiusSmall
-    color: activeFocus || mouseArea.containsMouse ? Theme.surfaceHover : "transparent"
     clip: true
     activeFocusOnTab: true
-    border.width: activeFocus ? 1 : 0
-    border.color: Theme.accent
+    onActiveFocusChanged: {
+        if (activeFocus)
+            focusRequested(categoryRow)
+    }
+    onExpandedChanged: focusRequested(categoryRow)
+
+    InsetStateLayer {
+        anchors.fill: parent
+        hovered: mouseArea.containsMouse
+        focused: categoryRow.activeFocus
+    }
 
     Accessible.role: Accessible.Button
     Accessible.name: rowData.categoryText + "，" + rowData.sizeText + "，"
                      + rowData.riskText + "，" + (expanded ? "已展开" : "已折叠")
     Accessible.description: rowData.impactText
     Accessible.onPressAction: categoryRow.toggleExpanded()
-
-    Behavior on color {
-        ColorAnimation { duration: Motion.fast }
-    }
 
     Column {
         id: contentColumn

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 AbstractButton {
     id: control
@@ -10,45 +11,49 @@ AbstractButton {
     property string badge: ""
     property bool selected: false
 
-    implicitHeight: 40
+    implicitHeight: 44
     hoverEnabled: true
+    focusPolicy: Qt.TabFocus
 
-    background: Rectangle {
-        radius: Theme.radiusSmall
-        color: control.selected ? Theme.surfaceSelected
-                                : control.hovered ? Theme.surfaceHover : "transparent"
+    background: Item {
+        InsetStateLayer {
+            anchors.fill: parent
+            selected: control.selected
+            hovered: control.hovered
+            pressed: control.down
+            focused: control.activeFocus
+        }
 
         Rectangle {
-            width: 3
-            height: control.selected ? 22 : 0
+            width: 4
+            height: control.selected ? 26 : 0
             radius: 2
             color: Theme.accent
             anchors.left: parent.left
+            anchors.leftMargin: 4
             anchors.verticalCenter: parent.verticalCenter
 
             Behavior on height {
-                NumberAnimation { duration: Motion.normal; easing.type: Easing.OutCubic }
+                NumberAnimation {
+                    duration: control.selected ? Motion.fast : Motion.hoverExit
+                    easing.type: Easing.OutCubic
+                }
             }
         }
 
-        Behavior on color {
-            ColorAnimation { duration: Motion.fast }
-        }
     }
 
-    contentItem: Row {
-        leftPadding: 13
-        rightPadding: 10
-        spacing: 11
+    contentItem: RowLayout {
+        spacing: 10
 
         Item {
-            width: 20
-            height: parent.height
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.leftMargin: 13
+            Layout.preferredWidth: 20
+            Layout.preferredHeight: 20
 
             ThemedIcon {
-                width: 18
-                height: 18
+                width: 19
+                height: 19
                 anchors.centerIn: parent
                 source: control.selected && control.selectedIconSource.toString().length > 0
                         ? control.selectedIconSource : control.iconSource
@@ -58,11 +63,10 @@ AbstractButton {
         }
 
         Text {
-            width: Math.max(0, control.width - 78)
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.fillWidth: true
             text: control.label
             color: !control.enabled ? Theme.textMuted
-                   : control.selected ? Theme.textPrimary : Theme.textSecondary
+                   : control.selected ? Theme.accentText : Theme.textSecondary
             font.pixelSize: 14
             font.weight: control.selected ? Font.DemiBold : Font.Normal
             elide: Text.ElideRight
@@ -70,10 +74,12 @@ AbstractButton {
 
         Rectangle {
             visible: control.badge.length > 0
-            width: Math.max(22, badgeText.implicitWidth + 10)
-            height: 20
+            implicitWidth: Math.max(22, badgeText.implicitWidth + 10)
+            implicitHeight: 20
             radius: 10
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.preferredWidth: implicitWidth
+            Layout.preferredHeight: implicitHeight
+            Layout.rightMargin: 10
             color: control.enabled ? Theme.redSoft : Theme.neutralSoft
 
             Text {

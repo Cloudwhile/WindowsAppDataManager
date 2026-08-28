@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 
@@ -8,6 +10,39 @@ ComboBox {
     leftPadding: 10
     rightPadding: 34
     font.pixelSize: 11
+
+    delegate: ItemDelegate {
+        id: option
+
+        required property int index
+        required property var modelData
+
+        width: ListView.view ? ListView.view.width : control.width
+        implicitHeight: 34
+        leftPadding: 12
+        rightPadding: 12
+        hoverEnabled: true
+        highlighted: control.highlightedIndex === index
+        text: control.textAt(index)
+
+        background: InsetStateLayer {
+            selected: option.index === control.currentIndex
+            hovered: option.highlighted || option.hovered
+            pressed: option.down
+            focused: option.activeFocus
+        }
+
+        contentItem: Text {
+            text: option.text
+            color: option.index === control.currentIndex
+                   ? Theme.accentText : Theme.textSecondary
+            font.family: control.font.family
+            font.pixelSize: control.font.pixelSize
+            font.weight: option.index === control.currentIndex ? Font.DemiBold : Font.Normal
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+    }
 
     contentItem: Text {
         text: control.displayText

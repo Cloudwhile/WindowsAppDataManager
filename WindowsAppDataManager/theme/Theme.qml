@@ -21,21 +21,23 @@ Item {
     readonly property bool dark: mode === 2 || (mode === 0 && systemDark)
     readonly property string modeName: mode === 0 ? "跟随系统" : mode === 1 ? "浅色" : "深色"
 
-    readonly property color canvas: dark ? "#11151a" : "#f3f5f7"
-    readonly property color surface: dark ? "#191e25" : "#ffffff"
-    readonly property color surfaceRaised: dark ? "#20262e" : "#f9fafb"
-    readonly property color surfaceHover: dark ? "#252d36" : "#eef4fb"
-    readonly property color surfaceSelected: dark ? "#173351" : "#e5f1ff"
-    readonly property color border: dark ? "#303944" : "#dce2e8"
-    readonly property color divider: dark ? "#29313a" : "#e7ebef"
+    readonly property color canvas: dark ? "#0f141b" : "#f6f8fb"
+    readonly property color surface: dark ? "#171d25" : "#ffffff"
+    readonly property color surfaceRaised: dark ? "#1d2530" : "#fafbfd"
+    readonly property color surfaceHover: dark ? "#222d39" : "#edf4ff"
+    readonly property color surfaceSelected: dark ? "#153657" : "#e8f2ff"
+    readonly property color sidebar: dark ? "#131a22" : "#f8faff"
+    readonly property color statusBar: dark ? "#151c24" : "#fbfcfe"
+    readonly property color border: dark ? "#303b48" : "#dce3ec"
+    readonly property color divider: dark ? "#28323d" : "#e8edf3"
 
-    readonly property color textPrimary: dark ? "#f3f6f9" : "#1d2733"
-    readonly property color textSecondary: dark ? "#aeb9c5" : "#5f6d7a"
-    readonly property color textMuted: dark ? "#8e9aa6" : "#697582"
+    readonly property color textPrimary: dark ? "#f4f7fb" : "#171c24"
+    readonly property color textSecondary: dark ? "#b5c0cc" : "#4d5968"
+    readonly property color textMuted: dark ? "#8795a5" : "#667085"
 
-    readonly property color accent: dark ? "#58a8ff" : "#1473e6"
-    readonly property color accentStrong: dark ? "#75b8ff" : "#075fc2"
-    readonly property color accentSoft: dark ? "#163d64" : "#dcecff"
+    readonly property color accent: dark ? "#58a8ff" : "#0b6ffb"
+    readonly property color accentStrong: dark ? "#79baff" : "#075bd4"
+    readonly property color accentSoft: dark ? "#143b61" : "#e7f1ff"
     readonly property color green: dark ? "#56cf88" : "#1f9d55"
     readonly property color greenSoft: dark ? "#153c2a" : "#ddf5e6"
     readonly property color amber: dark ? "#f6b94d" : "#d97a08"
@@ -48,18 +50,18 @@ Item {
     readonly property color neutral: dark ? "#a0aab5" : "#687582"
     readonly property color neutralSoft: dark ? "#2b323a" : "#e9edf1"
 
-    readonly property color accentText: dark ? "#8fc8ff" : "#075fc2"
+    readonly property color accentText: dark ? "#91caff" : "#075fd0"
     readonly property color greenText: dark ? "#79dfa4" : "#167a41"
     readonly property color amberText: dark ? "#ffd17a" : "#9a5200"
     readonly property color redText: dark ? "#ffaaaa" : "#b4232b"
     readonly property color purpleText: dark ? "#cbbcff" : "#6041a8"
     readonly property color neutralText: dark ? "#c0c8d1" : "#56616d"
     readonly property color onAccent: dark ? "#071624" : "#ffffff"
-    readonly property color scanTrack: dark ? "#294d72" : "#bed8f7"
+    readonly property color scanTrack: dark ? "#294d72" : "#c8dcf7"
 
     readonly property int radiusSmall: 5
     readonly property int radiusMedium: 9
-    readonly property int radiusLarge: 13
+    readonly property int radiusLarge: 10
 
     function applicationAccent(index) {
         const lightPalette = ["#1769aa", "#6741b6", "#0b6f87",

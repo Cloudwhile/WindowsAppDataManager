@@ -11,22 +11,23 @@ AbstractButton {
     property bool selected: false
     property color accent: Theme.accent
 
+    signal focusRequested(Item item)
+
     implicitHeight: 64
     hoverEnabled: true
     checkable: true
     autoExclusive: true
     checked: selected
+    onActiveFocusChanged: {
+        if (activeFocus)
+            focusRequested(control)
+    }
 
-    background: Rectangle {
-        radius: Theme.radiusSmall
-        color: control.selected ? Theme.surfaceSelected
-                                : control.hovered ? Theme.surfaceHover : "transparent"
-        border.width: control.activeFocus ? 1 : 0
-        border.color: Theme.accent
-
-        Behavior on color {
-            ColorAnimation { duration: Motion.fast }
-        }
+    background: InsetStateLayer {
+        selected: control.selected
+        hovered: control.hovered
+        pressed: control.down
+        focused: control.activeFocus
     }
 
     contentItem: RowLayout {

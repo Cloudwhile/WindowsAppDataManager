@@ -198,6 +198,8 @@ Item {
                 }
 
                 ListView {
+                    id: cleanupList
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -211,6 +213,10 @@ Item {
                                           && !page.cleanupController.running
                         onSelectionChanged: (itemIndex, selected) =>
                                             page.plan.setSelected(itemIndex, selected)
+                        onFocusRequested: itemIndex => {
+                            cleanupList.currentIndex = itemIndex
+                            cleanupList.positionViewAtIndex(itemIndex, ListView.Contain)
+                        }
                     }
                 }
             }

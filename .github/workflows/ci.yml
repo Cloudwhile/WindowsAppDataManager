@@ -127,6 +127,7 @@ jobs:
             (Join-Path $env:GITHUB_WORKSPACE $env:BUILD_DIR)
           ).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
           $testProcesses = @(
+            "WindowsAppDataManager",
             "wam_backend_tests",
             "wam_cleanup_tests",
             "wam_installation_evidence_tests",

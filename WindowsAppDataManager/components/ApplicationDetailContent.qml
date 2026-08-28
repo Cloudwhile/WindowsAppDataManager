@@ -12,6 +12,8 @@ Item {
     readonly property bool showOrphanAssessment: application.installState !== 0
                                                  && application.orphanSummary.length > 0
 
+    signal focusRequested(Item item)
+
     function collectionItem(collection, index) {
         if (!collection)
             return ({})
@@ -151,6 +153,7 @@ Item {
                     required property int index
                     width: parent.width
                     rowData: detail.collectionItem(detail.application.dataGroups, index)
+                    onFocusRequested: item => detail.focusRequested(item)
                 }
             }
         }
@@ -248,9 +251,24 @@ Item {
                 font.weight: Font.DemiBold
             }
 
-            PathField { width: parent.width; label: "AppData 位置"; value: detail.application.location }
-            PathField { width: parent.width; label: "可执行文件"; value: detail.application.executablePath }
-            PathField { width: parent.width; label: "安装位置"; value: detail.application.installPath }
+            PathField {
+                width: parent.width
+                label: "AppData 位置"
+                value: detail.application.location
+                onFocusRequested: item => detail.focusRequested(item)
+            }
+            PathField {
+                width: parent.width
+                label: "可执行文件"
+                value: detail.application.executablePath
+                onFocusRequested: item => detail.focusRequested(item)
+            }
+            PathField {
+                width: parent.width
+                label: "安装位置"
+                value: detail.application.installPath
+                onFocusRequested: item => detail.focusRequested(item)
+            }
         }
 
         Rectangle { width: parent.width; height: 1; color: Theme.divider }

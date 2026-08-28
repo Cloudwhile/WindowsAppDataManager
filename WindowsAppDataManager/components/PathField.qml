@@ -7,6 +7,8 @@ Item {
     property string label: ""
     property string value: ""
 
+    signal focusRequested(Item item)
+
     implicitHeight: value.length > 0 ? 45 : 0
     visible: implicitHeight > 0
 
@@ -40,6 +42,10 @@ Item {
             topPadding: 0
             bottomPadding: 0
             clip: true
+            onActiveFocusChanged: {
+                if (activeFocus)
+                    field.focusRequested(pathText)
+            }
 
             background: Rectangle {
                 color: "transparent"

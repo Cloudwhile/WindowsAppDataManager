@@ -10,14 +10,14 @@ Item {
     required property string reclaimableSizeText
     required property string sortText
 
-    implicitHeight: 70
+    implicitHeight: 66
 
     Column {
         anchors.fill: parent
 
         RowLayout {
             width: parent.width
-            height: 34
+            height: 32
             spacing: 10
 
             Text {
@@ -43,10 +43,10 @@ Item {
 
         RowLayout {
             width: parent.width
-            height: 34
+            height: 32
             spacing: 10
 
-            Item { Layout.leftMargin: 12; Layout.preferredWidth: 28 }
+            Item { Layout.leftMargin: 12; Layout.preferredWidth: 26 }
 
             Text {
                 Layout.preferredWidth: 150
@@ -59,9 +59,19 @@ Item {
             }
 
             Text {
-                Layout.preferredWidth: 92
-                Layout.maximumWidth: 110
-                visible: header.width > 560
+                Layout.preferredWidth: 174
+                Layout.minimumWidth: 116
+                visible: header.width > 740
+                text: "路径"
+                color: Theme.textMuted
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+            }
+
+            Text {
+                Layout.preferredWidth: 82
+                Layout.maximumWidth: 96
+                visible: header.width > 610
                 text: "分类"
                 color: Theme.textMuted
                 font.pixelSize: 10
@@ -71,6 +81,16 @@ Item {
             Text {
                 Layout.preferredWidth: 70
                 text: "占用"
+                color: Theme.textMuted
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignRight
+            }
+
+            Text {
+                Layout.preferredWidth: 64
+                visible: header.width > 720
+                text: "文件数"
                 color: Theme.textMuted
                 font.pixelSize: 10
                 font.weight: Font.DemiBold
@@ -88,7 +108,7 @@ Item {
 
             Text {
                 Layout.preferredWidth: 88
-                visible: header.width > 650
+                visible: header.width > 1000
                 text: "最近修改"
                 color: Theme.textMuted
                 font.pixelSize: 10

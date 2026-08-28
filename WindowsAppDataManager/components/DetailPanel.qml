@@ -17,15 +17,15 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: 42
+        height: 46
 
         Text {
             anchors.left: parent.left
             anchors.leftMargin: 18
             anchors.verticalCenter: parent.verticalCenter
             text: "详细信息"
-            color: Theme.textSecondary
-            font.pixelSize: 11
+            color: Theme.textPrimary
+            font.pixelSize: 13
             font.weight: Font.DemiBold
         }
 
@@ -47,7 +47,9 @@ Rectangle {
         color: Theme.divider
     }
 
-    Flickable {
+    FocusAwareFlickable {
+        id: detailFlickable
+
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: panelHeader.bottom
@@ -66,6 +68,7 @@ Rectangle {
             width: parent.width - 36
             application: panel.rowData
             paneMode: true
+            onFocusRequested: item => detailFlickable.revealItem(item)
         }
     }
 }

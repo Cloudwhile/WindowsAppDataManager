@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 
 Item {
     id: tile
@@ -11,7 +12,7 @@ Item {
 
     implicitHeight: 92
 
-    Row {
+    RowLayout {
         anchors.left: parent.left
         anchors.leftMargin: 20
         anchors.right: parent.right
@@ -20,8 +21,8 @@ Item {
         spacing: 13
 
         Rectangle {
-            width: 38
-            height: 38
+            Layout.preferredWidth: 38
+            Layout.preferredHeight: 38
             radius: Theme.radiusMedium
             color: Qt.rgba(tile.accent.r, tile.accent.g, tile.accent.b, Theme.dark ? 0.2 : 0.12)
 
@@ -34,27 +35,34 @@ Item {
             }
         }
 
-        Column {
-            anchors.verticalCenter: parent.verticalCenter
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
             spacing: 2
 
             Text {
+                Layout.fillWidth: true
                 text: tile.label
                 color: Theme.textSecondary
                 font.pixelSize: 12
+                elide: Text.ElideRight
             }
 
             Text {
+                Layout.fillWidth: true
                 text: tile.value
                 color: tile.accent
                 font.pixelSize: 23
                 font.weight: Font.DemiBold
+                elide: Text.ElideRight
             }
 
             Text {
+                Layout.fillWidth: true
                 text: tile.detail
                 color: Theme.textMuted
                 font.pixelSize: 11
+                elide: Text.ElideRight
             }
         }
     }

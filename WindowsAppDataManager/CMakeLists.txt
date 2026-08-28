@@ -124,6 +124,8 @@ endif()
 
 set(PROJECT_SOURCES
     main.cpp
+    src/platform/windows/appearance/WindowAppearance.cpp
+    src/platform/windows/appearance/WindowAppearance.h
 )
 
 if(QT_VERSION VERSION_LESS 5.15)
@@ -157,16 +159,24 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             components/EmptyState.qml
             components/InlineNotice.qml
             components/ScanProgressStrip.qml
+            components/ScanProgressBar.qml
+            components/ScanRadar.qml
+            components/ScanOverviewPanel.qml
+            components/ScanActivityPanel.qml
+            components/LiveScanPanel.qml
+            components/ScanWorkspace.qml
             components/OverviewStats.qml
             components/DispositionSummary.qml
             components/OverviewApplicationList.qml
             components/IconButton.qml
+            components/InsetStateLayer.qml
             components/NavItem.qml
             components/RiskBadge.qml
             components/StatTile.qml
             components/ThemedIcon.qml
             components/ApplicationRow.qml
             components/FilterComboBox.qml
+            components/FocusAwareFlickable.qml
             components/ApplicationFilterBar.qml
             components/ApplicationListHeader.qml
             components/ApplicationDetailContent.qml
@@ -201,6 +211,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
         RESOURCES
             resources/Icons/IcBaselineCleaningServices.svg
             resources/Icons/TablerActivityHeartbeat.svg
+            resources/Icons/TablerAlertSmall.svg
             resources/Icons/TablerArrowNarrowDown.svg
             resources/Icons/TablerArrowNarrowUp.svg
             resources/Icons/TablerArrowUpRight.svg
@@ -232,6 +243,25 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             resources/Icons/TablerZoom.svg
             resources/Icons/TablerZoomScan.svg
     )
+
+    # 这些头文件共同决定 QML 单例及其内嵌模型的对象布局。显式声明依赖，
+    # 避免 MSVC/Ninja 增量构建复用旧布局的 AppBackend 或类型注册对象。
+    set(WAM_QML_MODEL_ABI_HEADERS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/AppBackend.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/ApplicationFilterModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/ApplicationListModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/CleanupPlanModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/CleanupViewModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/ScanViewModel.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels/SettingsViewModel.h"
+    )
+    set_property(SOURCE src/qmlmodels/AppBackend.cpp APPEND PROPERTY
+        OBJECT_DEPENDS ${WAM_QML_MODEL_ABI_HEADERS}
+    )
+    set_property(
+        SOURCE "${CMAKE_CURRENT_BINARY_DIR}/windowsappdatamanager_qmltyperegistrations.cpp"
+        APPEND PROPERTY OBJECT_DEPENDS ${WAM_QML_MODEL_ABI_HEADERS}
+    )
 endif()
 
 set_target_properties(${PROJECT_NAME}
@@ -250,9 +280,23 @@ target_link_libraries(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/qmlmodels
 )
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE dwmapi)
+endif()
 
 if(BUILD_TESTING)
     find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+
+    add_test(NAME wam_qml_startup_test
+        COMMAND $<TARGET_FILE:${PROJECT_NAME}> --startup-check
+    )
+    set_tests_properties(wam_qml_startup_test PROPERTIES
+        TIMEOUT 20
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;WAM_STARTUP_CHECK=1"
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>;QT_PLUGIN_PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins"
+    )
+
     add_executable(wam_backend_tests
         tests/tst_backend.cpp
     )

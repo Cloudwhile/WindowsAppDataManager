@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -8,6 +10,7 @@ Flickable {
     property bool scanning: false
     property real scanProgress: 0
     property string currentPath: ""
+    property var recentPaths: []
     property string scanStatus: "尚未扫描"
     property string lastScanText: "尚未扫描"
     property bool scanFailed: false
@@ -19,9 +22,23 @@ Flickable {
     signal applicationsRequested()
 
     readonly property bool hasResults: AppStore.applications.count > 0
+    readonly property bool showScanWorkspace: scanning || !hasResults
+    readonly property bool showResults: hasResults
+    readonly property string pageTitle: scanning ? "正在扫描"
+                                                : hasResults ? "AppData 概览"
+                                                             : "扫描概览"
+    readonly property string pageSubtitle: scanning
+                                           ? (currentPath.length > 0
+                                              ? currentPath : scanStatus)
+                                           : scanFailed
+                                             ? "本次扫描失败，保留上一次完整结果"
+                                           : partialResult ? scanStatus
+                                           : lastScanText === "尚未扫描"
+                                             ? scanStatus
+                                             : "最近扫描于" + lastScanText
 
     contentWidth: width
-    contentHeight: contentColumn.implicitHeight + 48
+    contentHeight: contentColumn.implicitHeight + 36
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: ScrollBar { }
@@ -29,10 +46,10 @@ Flickable {
     Column {
         id: contentColumn
 
-        x: 24
-        y: 22
-        width: parent.width - 48
-        spacing: 16
+        x: 18
+        y: 18
+        width: parent.width - 36
+        spacing: 14
 
         RowLayout {
             width: parent.width
@@ -40,23 +57,23 @@ Flickable {
 
             Column {
                 Layout.fillWidth: true
-                spacing: 3
+                spacing: 4
 
                 Text {
-                    text: "概览"
+                    width: parent.width
+                    text: page.pageTitle
                     color: Theme.textPrimary
-                    font.pixelSize: 25
+                    font.pixelSize: 24
                     font.weight: Font.DemiBold
+                    elide: Text.ElideRight
                 }
 
                 Text {
-                    text: page.scanning ? "正在分析 AppData"
-                          : page.scanFailed ? "本次扫描失败，当前显示上一次完整结果"
-                          : page.partialResult ? page.scanStatus
-                          : page.lastScanText === "尚未扫描" ? page.scanStatus
-                                                           : "最近扫描于" + page.lastScanText
+                    width: parent.width
+                    text: page.pageSubtitle
                     color: Theme.textSecondary
                     font.pixelSize: 12
+                    elide: Text.ElideMiddle
                 }
             }
 
@@ -70,18 +87,44 @@ Flickable {
             }
         }
 
-        ScanProgressStrip {
+        ScanWorkspace {
+            id: scanWorkspace
+
             width: parent.width
-            scanning: page.scanning
+            height: page.showScanWorkspace ? scanWorkspace.implicitHeight : 0
+            opacity: page.showScanWorkspace ? 1 : 0
+            visible: scanWorkspace.height > 0 || scanWorkspace.opacity > 0
+            clip: true
             progress: page.scanProgress
             currentPath: page.currentPath
-            statusText: page.scanStatus
+            status: page.scanStatus
+            applications: AppStore.applications
+            recentPaths: page.recentPaths
+            issueCount: page.issueCount
+            active: page.scanning
+            onDetailsRequested: page.applicationsRequested()
+
+            Behavior on height {
+                NumberAnimation {
+                    duration: Motion.allowPosition ? Motion.normal : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation { duration: Motion.fast }
+            }
         }
 
         InlineNotice {
+            id: scanNotice
+
             width: parent.width
-            height: implicitHeight
-            visible: page.hasResults && (page.scanFailed || page.partialResult)
+            readonly property bool shown: !page.scanning && page.showResults
+                                          && (page.scanFailed || page.partialResult)
+            height: scanNotice.shown ? scanNotice.implicitHeight : 0
+            opacity: scanNotice.shown ? 1 : 0
+            visible: scanNotice.height > 0 || scanNotice.opacity > 0
             iconSource: Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")
             message: page.scanFailed
                      ? "本次扫描未完成，当前仍显示上一次完整结果。"
@@ -90,55 +133,89 @@ Flickable {
             fill: page.scanFailed ? Theme.redSoft : Theme.amberSoft
             actionIconSource: Qt.resolvedUrl("../resources/Icons/TablerRefresh.svg")
             actionTooltip: "重新扫描"
-            actionVisible: !page.scanning
+            actionVisible: true
             onActionRequested: page.scanRequested()
-        }
 
-        EmptyState {
-            width: parent.width
-            height: Math.max(280, page.height - 132)
-            visible: !page.hasResults
-            iconSource: page.scanFailed
-                        ? Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")
-                        : page.scanning
-                          ? Qt.resolvedUrl("../resources/Icons/TablerActivityHeartbeat.svg")
-                          : Qt.resolvedUrl("../resources/Icons/TablerZoomScan.svg")
-            title: page.scanFailed ? "扫描未能完成"
-                                   : page.scanning ? "正在分析 AppData"
-                                                   : "尚无扫描结果"
-            description: page.scanning
-                         ? (page.currentPath.length > 0 ? page.currentPath : page.scanStatus)
-                         : page.scanFailed ? page.scanStatus
-                                           : "开始扫描后，将在这里汇总应用归属、数据判定和占用情况。"
-            actionIconSource: Qt.resolvedUrl("../resources/Icons/TablerPlayerPlayFilled.svg")
-            actionTooltip: page.scanFailed ? "重新扫描" : "开始扫描"
-            actionVisible: !page.scanning
-            accent: page.scanFailed ? Theme.red : Theme.accent
-            onActionRequested: page.scanRequested()
+            Behavior on height {
+                NumberAnimation {
+                    duration: Motion.allowPosition ? Motion.normal : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation { duration: Motion.fast }
+            }
         }
 
         OverviewStats {
+            id: overviewStats
+
             width: parent.width
-            height: implicitHeight
-            visible: page.hasResults
+            height: page.showResults ? overviewStats.implicitHeight : 0
+            opacity: page.showResults ? 1 : 0
+            visible: overviewStats.height > 0 || overviewStats.opacity > 0
+            clip: true
             applications: AppStore.applications
+
+            Behavior on height {
+                NumberAnimation {
+                    duration: Motion.allowPosition ? Motion.normal : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation { duration: Motion.fast }
+            }
         }
 
         DispositionSummary {
+            id: dispositionSummary
+
             width: parent.width
-            height: implicitHeight
-            visible: page.hasResults
+            height: page.showResults ? dispositionSummary.implicitHeight : 0
+            opacity: page.showResults ? 1 : 0
+            visible: dispositionSummary.height > 0 || dispositionSummary.opacity > 0
+            clip: true
             applications: AppStore.applications
+
+            Behavior on height {
+                NumberAnimation {
+                    duration: Motion.allowPosition ? Motion.normal : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation { duration: Motion.fast }
+            }
         }
 
         OverviewApplicationList {
+            id: overviewApplicationList
+
             width: parent.width
-            height: implicitHeight
-            visible: page.hasResults
+            height: page.showResults ? overviewApplicationList.implicitHeight : 0
+            opacity: page.showResults ? 1 : 0
+            visible: overviewApplicationList.height > 0
+                     || overviewApplicationList.opacity > 0
+            clip: true
             applications: AppStore.applications
             selectedIndex: AppStore.currentIndex
             onApplicationSelected: index => page.applicationSelected(index)
             onApplicationsRequested: page.applicationsRequested()
+
+            Behavior on height {
+                NumberAnimation {
+                    duration: Motion.allowPosition ? Motion.normal : 0
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation { duration: Motion.fast }
+            }
         }
     }
 }

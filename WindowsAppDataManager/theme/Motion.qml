@@ -11,6 +11,8 @@ QtObject {
     readonly property int normal: preference === 2 ? 0 : preference === 1 ? 140 : 220
     readonly property int slow: preference === 2 ? 0 : preference === 1 ? 190 : 320
     readonly property int emphasized: preference === 2 ? 0 : preference === 1 ? 230 : 420
+    readonly property int hoverEnter: preference === 2 ? 0 : preference === 1 ? 45 : 70
+    readonly property int hoverExit: 0
     readonly property bool allowPosition: preference === 0
     readonly property bool allowScale: preference === 0
 }

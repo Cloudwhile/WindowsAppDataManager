@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 
-Flickable {
+FocusAwareFlickable {
     id: page
 
     required property SettingsViewModel settingsController
@@ -49,22 +49,18 @@ Flickable {
 
         Rectangle {
             width: parent.width
-            height: appearanceOptions.implicitHeight + 12
+            height: appearanceOptions.implicitHeight
             radius: Theme.radiusMedium
             color: Theme.surface
             border.width: 1
             border.color: Theme.border
+            clip: true
 
             Column {
                 id: appearanceOptions
 
-                anchors.left: parent.left
-                anchors.leftMargin: 6
-                anchors.right: parent.right
-                anchors.rightMargin: 6
-                anchors.top: parent.top
-                anchors.topMargin: 6
-                spacing: 2
+                anchors.fill: parent
+                spacing: 0
 
                 Repeater {
                     model: [
@@ -101,6 +97,7 @@ Flickable {
                         iconSource: modelData.icon
                         accent: modelData.accent
                         selected: page.settingsController.themeMode === modelData.value
+                        onFocusRequested: item => page.revealItem(item)
                         onClicked: page.settingsController.themeMode = modelData.value
                     }
                 }
@@ -116,22 +113,18 @@ Flickable {
 
         Rectangle {
             width: parent.width
-            height: motionOptions.implicitHeight + 12
+            height: motionOptions.implicitHeight
             radius: Theme.radiusMedium
             color: Theme.surface
             border.width: 1
             border.color: Theme.border
+            clip: true
 
             Column {
                 id: motionOptions
 
-                anchors.left: parent.left
-                anchors.leftMargin: 6
-                anchors.right: parent.right
-                anchors.rightMargin: 6
-                anchors.top: parent.top
-                anchors.topMargin: 6
-                spacing: 2
+                anchors.fill: parent
+                spacing: 0
 
                 Repeater {
                     model: [
@@ -168,6 +161,7 @@ Flickable {
                         iconSource: modelData.icon
                         accent: modelData.accent
                         selected: page.settingsController.motionPreference === modelData.value
+                        onFocusRequested: item => page.revealItem(item)
                         onClicked: page.settingsController.motionPreference = modelData.value
                     }
                 }

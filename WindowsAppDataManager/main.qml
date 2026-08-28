@@ -7,8 +7,8 @@ ApplicationWindow {
     id: window
 
     visible: true
-    width: Math.min(1280, Screen.desktopAvailableWidth - 48)
-    height: Math.min(800, Screen.desktopAvailableHeight - 72)
+    width: Math.min(1360, Screen.desktopAvailableWidth - 48)
+    height: Math.min(840, Screen.desktopAvailableHeight - 72)
     minimumWidth: 1024
     minimumHeight: 640
     title: "Windows AppData 管理器"
@@ -40,17 +40,17 @@ ApplicationWindow {
     readonly property real scanProgress: scanController.progress
     readonly property bool detailSupported: currentPage === overviewPageIndex
                                             || currentPage === applicationsPageIndex
-    readonly property bool wideDetailMode: width >= 1420
+    readonly property bool wideDetailMode: width >= 1260
     readonly property bool selectedApplicationVisible: currentPage !== applicationsPageIndex
                                                         || applicationFilter.containsSourceIndex(
                                                             AppStore.currentIndex)
-    readonly property bool showDetails: wideDetailMode && detailSupported
+    readonly property bool showDetails: wideDetailMode && detailSupported && !scanning
                                         && AppStore.applications.count > 0 && detailPaneOpen
                                         && selectedApplicationVisible
-    readonly property int detailPanelWidth: width >= 1520 ? 384 : 360
-    readonly property int sidebarWidth: width < 1120 ? 184 : 208
+    readonly property int detailPanelWidth: width >= 1480 ? 360 : 320
+    readonly property int sidebarWidth: width < 1120 ? 208 : 232
     property real detailPanelExtent: showDetails ? detailPanelWidth : 0
-    property bool detailPaneOpen: false
+    property bool detailPaneOpen: true
 
     onCurrentPageChanged: pageFade.restart()
     readonly property color scanStatusColor: cleanupController.running
@@ -126,24 +126,6 @@ ApplicationWindow {
         onActivated: window.returnToApplications()
     }
 
-    AppCommandBar {
-        id: commandBar
-
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        scanning: window.scanning
-        scanEnabled: !window.cleanupController.running
-        cleanupRunning: window.cleanupController.running
-        targetPath: window.scanController.targetPath
-        sidebarWidth: window.sidebarWidth
-        darkTheme: Theme.dark
-        themeName: Theme.modeName
-        onScanToggled: window.toggleScan()
-        onThemeRequested: window.cycleThemeMode()
-        onSettingsRequested: window.currentPage = window.settingsPageIndex
-    }
-
     AppStatusBar {
         id: statusBar
 
@@ -164,12 +146,15 @@ ApplicationWindow {
         detailVisible: window.showDetails
         selectedApplicationName: AppStore.applications.count > 0
                                  ? AppStore.selectedApplication.appName : ""
+        currentPath: window.scanController.currentPath.length > 0
+                     ? window.scanController.currentPath : window.scanController.targetPath
+        pathLabel: window.scanning ? "当前路径" : "扫描范围"
     }
 
     RowLayout {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: commandBar.bottom
+        anchors.top: parent.top
         anchors.bottom: statusBar.top
         spacing: 0
 
@@ -197,6 +182,7 @@ ApplicationWindow {
                 scanning: window.scanning
                 scanProgress: window.scanProgress
                 currentPath: window.scanController.currentPath
+                recentPaths: window.scanController.recentPaths
                 scanStatus: window.scanController.statusText
                 lastScanText: window.scanController.lastScanText
                 scanFailed: window.scanController.errorMessage.length > 0

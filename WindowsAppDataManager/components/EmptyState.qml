@@ -41,6 +41,7 @@ Item {
         Text {
             width: parent.width
             text: state.description
+            visible: text.length > 0
             color: Theme.textSecondary
             font.pixelSize: 11
             lineHeight: 1.35

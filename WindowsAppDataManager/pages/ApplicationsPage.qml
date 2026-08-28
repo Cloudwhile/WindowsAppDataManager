@@ -33,11 +33,11 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.leftMargin: 24
-        anchors.rightMargin: 24
-        anchors.topMargin: 20
-        anchors.bottomMargin: 20
-        spacing: 14
+        anchors.leftMargin: 18
+        anchors.rightMargin: 18
+        anchors.topMargin: 18
+        anchors.bottomMargin: 18
+        spacing: 12
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -45,7 +45,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: "应用"
+                text: "应用管理"
                 color: Theme.textPrimary
                 font.pixelSize: 25
                 font.weight: Font.DemiBold
@@ -115,6 +115,13 @@ Item {
                         rowData: page.filterModel.get(index)
                         rowIndex: rowData.sourceIndex
                         selected: AppStore.currentIndex === rowIndex
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                applicationList.currentIndex = applicationDelegate.index
+                                applicationList.positionViewAtIndex(applicationDelegate.index,
+                                                                    ListView.Contain)
+                            }
+                        }
                         onActivated: selectedIndex => page.applicationSelected(selectedIndex)
                     }
                 }
@@ -134,10 +141,7 @@ Item {
                                                               : page.hasApplications
                                                                 ? "没有符合条件的应用"
                                                                 : "尚无应用数据"
-                description: page.scanning && !page.hasApplications ? page.scanStatus
-                             : page.hasApplications
-                               ? "清除搜索与筛选条件可返回完整应用列表。"
-                               : "完成一次扫描后，可按名称、发布者、风险和安装状态查找应用。"
+                description: page.scanning && !page.hasApplications ? page.scanStatus : ""
                 actionIconSource: page.hasApplications
                                   ? Qt.resolvedUrl("../resources/Icons/TablerX.svg")
                                   : Qt.resolvedUrl("../resources/Icons/TablerPlayerPlayFilled.svg")

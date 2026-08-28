@@ -13,19 +13,20 @@ AbstractButton {
     implicitWidth: 36
     implicitHeight: 34
     hoverEnabled: true
+    focusPolicy: Qt.TabFocus
 
-    background: Rectangle {
-        radius: Theme.radiusSmall
-        color: control.prominent
-               ? (control.down ? Theme.accentStrong : Theme.accent)
-               : control.down ? Theme.surfaceSelected
-                              : control.hovered ? Theme.surfaceHover : "transparent"
-        border.width: control.prominent || !control.hovered ? 0 : 1
-        border.color: Theme.border
-
-        Behavior on color {
-            ColorAnimation { duration: Motion.fast }
-        }
+    background: InsetStateLayer {
+        inset: control.prominent ? 0 : 4
+        selected: control.prominent
+        hovered: control.hovered && !control.prominent
+        pressed: control.down
+        focused: control.activeFocus
+        selectedColor: Theme.accent
+        pressedColor: control.prominent ? Theme.accentStrong : Theme.surfaceSelected
+        focusColor: control.prominent ? Theme.onAccent : Theme.accent
+        focusWidth: 2
+        idleBorderWidth: !control.prominent && control.hovered ? 1 : 0
+        idleBorderColor: Theme.border
     }
 
     contentItem: Item {
