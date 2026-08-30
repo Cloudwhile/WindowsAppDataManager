@@ -8,13 +8,10 @@ QtObject {
     property int currentIndex: 0
     property string currentApplicationId: ""
     readonly property ApplicationListModel applications: Backend.applications
-    readonly property int dataRevision: applications.revision
-    readonly property var selectedApplication: {
-        const revision = dataRevision
-        if (applications.count > 0)
-            return applications.get(Math.min(currentIndex, applications.count - 1))
-        return emptyApplication()
-    }
+    readonly property bool scanning: Backend.scan.running
+    readonly property var emptyApplicationData: emptyApplication()
+    property var selectedApplication: emptyApplicationData
+    property bool selectionRefreshPending: false
 
     function emptyApplication() {
         return {
@@ -51,7 +48,9 @@ QtObject {
     function selectApplication(index) {
         if (index >= 0 && index < applications.count) {
             currentIndex = index
-            currentApplicationId = applications.get(index).appId
+            currentApplicationId = applications.getSummary(index).appId
+            if (!scanning)
+                selectedApplication = applications.get(index)
         }
     }
 
@@ -69,18 +68,48 @@ QtObject {
         }
 
         currentIndex = Math.min(currentIndex, applications.count - 1)
-        currentApplicationId = applications.get(currentIndex).appId
+        currentApplicationId = applications.getSummary(currentIndex).appId
     }
+
+    function refreshSelectedApplication() {
+        if (scanning)
+            return
+
+        restoreSelection()
+        selectedApplication = applications.count > 0
+                ? applications.get(Math.min(currentIndex, applications.count - 1))
+                : emptyApplicationData
+    }
+
+    function scheduleSelectionRefresh() {
+        if (scanning || selectionRefreshPending)
+            return
+
+        selectionRefreshPending = true
+        Qt.callLater(function() {
+            store.selectionRefreshPending = false
+            store.refreshSelectedApplication()
+        })
+    }
+
+    onScanningChanged: {
+        if (scanning)
+            selectedApplication = emptyApplicationData
+        else
+            refreshSelectedApplication()
+    }
+
+    Component.onCompleted: store.refreshSelectedApplication()
 
     property Connections modelConnections: Connections {
         target: store.applications
 
         function onCountChanged() {
-            store.restoreSelection()
+            store.scheduleSelectionRefresh()
         }
 
         function onRevisionChanged() {
-            store.restoreSelection()
+            store.scheduleSelectionRefresh()
         }
     }
 }

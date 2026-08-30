@@ -6,6 +6,7 @@ Rectangle {
     id: summary
 
     required property ApplicationListModel applications
+    required property bool active
 
     implicitHeight: 156
     radius: Theme.radiusMedium
@@ -52,21 +53,26 @@ Rectangle {
             anchors.fill: parent
 
             Repeater {
-                model: [
-                    { "ratio": summary.applications.reclaimableRatio, "color": Theme.green },
-                    { "ratio": summary.applications.protectedRatio, "color": Theme.purple },
-                    { "ratio": summary.applications.reviewRatio, "color": Theme.amber }
-                ]
+                model: 3
 
                 delegate: Rectangle {
                     id: segment
 
-                    required property var modelData
-                    width: distributionTrack.width * Math.max(0, segment.modelData.ratio) / 100
+                    required property int index
+                    readonly property real ratio: index === 0
+                                                  ? summary.applications.reclaimableRatio
+                                                  : index === 1
+                                                    ? summary.applications.protectedRatio
+                                                    : summary.applications.reviewRatio
+                    readonly property color segmentColor: index === 0 ? Theme.green
+                                                          : index === 1 ? Theme.purple
+                                                                        : Theme.amber
+                    width: distributionTrack.width * Math.max(0, segment.ratio) / 100
                     height: distributionTrack.height
-                    color: segment.modelData.color
+                    color: segment.segmentColor
 
                     Behavior on width {
+                        enabled: !summary.active
                         NumberAnimation { duration: Motion.slow; easing.type: Easing.OutCubic }
                     }
                 }
@@ -83,17 +89,28 @@ Rectangle {
         anchors.topMargin: 16
 
         Repeater {
-            model: [
-                { "label": "可重新生成", "value": summary.applications.reclaimableSizeText, "ratio": summary.applications.reclaimableRatio.toFixed(1) + "%", "color": Theme.green },
-                { "label": "受保护", "value": summary.applications.protectedSizeText, "ratio": summary.applications.protectedRatio.toFixed(1) + "%", "color": Theme.purple },
-                { "label": "需确认 / 未知", "value": summary.applications.reviewSizeText, "ratio": summary.applications.reviewRatio.toFixed(1) + "%", "color": Theme.amber }
-            ]
+            model: 3
 
             delegate: Item {
                 id: metric
 
                 required property int index
-                required property var modelData
+                readonly property string metricLabel: index === 0 ? "可重新生成"
+                                                       : index === 1 ? "受保护"
+                                                                     : "需确认 / 未知"
+                readonly property string metricValue: index === 0
+                                                       ? summary.applications.reclaimableSizeText
+                                                       : index === 1
+                                                         ? summary.applications.protectedSizeText
+                                                         : summary.applications.reviewSizeText
+                readonly property real metricRatio: index === 0
+                                                    ? summary.applications.reclaimableRatio
+                                                    : index === 1
+                                                      ? summary.applications.protectedRatio
+                                                      : summary.applications.reviewRatio
+                readonly property color metricColor: index === 0 ? Theme.green
+                                                     : index === 1 ? Theme.purple
+                                                                   : Theme.amber
                 width: parent.width / 3
                 height: 54
 
@@ -119,7 +136,7 @@ Rectangle {
                         height: 8
                         radius: 2
                         anchors.verticalCenter: parent.verticalCenter
-                        color: metric.modelData.color
+                        color: metric.metricColor
                     }
 
                     Column {
@@ -128,7 +145,8 @@ Rectangle {
 
                         Text {
                             width: parent.width
-                            text: metric.modelData.label + "  " + metric.modelData.ratio
+                            text: metric.metricLabel + "  "
+                                  + metric.metricRatio.toFixed(1) + "%"
                             color: Theme.textPrimary
                             font.pixelSize: 11
                             font.weight: Font.Medium
@@ -137,7 +155,7 @@ Rectangle {
 
                         Text {
                             width: parent.width
-                            text: metric.modelData.value
+                            text: metric.metricValue
                             color: Theme.textMuted
                             font.pixelSize: 11
                             elide: Text.ElideRight

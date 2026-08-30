@@ -84,18 +84,20 @@ Rectangle {
         anchors.topMargin: 1
 
         Repeater {
-            model: panel.visiblePaths
+            model: 5
 
             delegate: Item {
                 id: activityRow
 
                 required property int index
-                required property string modelData
+                readonly property string path: index < panel.visiblePaths.length
+                                               ? panel.visiblePaths[index] : ""
+                readonly property bool current: panel.active
+                                                && path === panel.currentPath
 
-                readonly property bool current: panel.active && modelData === panel.currentPath
-
+                visible: path.length > 0
                 width: parent.width
-                height: 52
+                height: visible ? 52 : 0
 
                 Rectangle {
                     anchors.fill: parent
@@ -123,7 +125,7 @@ Rectangle {
 
                         Text {
                             width: parent.width
-                            text: panel.pathName(activityRow.modelData)
+                            text: panel.pathName(activityRow.path)
                             color: Theme.textPrimary
                             font.pixelSize: 12
                             font.weight: activityRow.current ? Font.DemiBold : Font.Medium
@@ -132,7 +134,7 @@ Rectangle {
 
                         Text {
                             width: parent.width
-                            text: activityRow.modelData
+                            text: activityRow.path
                             color: Theme.textMuted
                             font.pixelSize: 10
                             elide: Text.ElideMiddle
@@ -148,7 +150,8 @@ Rectangle {
                 }
 
                 Rectangle {
-                    visible: activityRow.index < panel.visiblePaths.length - 1
+                    visible: activityRow.path.length > 0
+                             && activityRow.index < panel.visiblePaths.length - 1
                     anchors.left: parent.left
                     anchors.leftMargin: 47
                     anchors.right: parent.right

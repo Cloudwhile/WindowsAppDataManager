@@ -9,6 +9,7 @@ Rectangle {
     required property int applicationDetailPageIndex
     required property int cleanupPageIndex
     required property int settingsPageIndex
+    required property bool scanning
 
     property int applicationCount: AppStore.applications.count
     property string appDataSizeText: AppStore.applications.totalSizeText
@@ -202,6 +203,7 @@ Rectangle {
                 color: Theme.green
 
                 Behavior on width {
+                    enabled: !sidebar.scanning
                     NumberAnimation {
                         duration: Motion.normal
                         easing.type: Easing.OutCubic

@@ -179,6 +179,7 @@ Flickable {
             visible: dispositionSummary.height > 0 || dispositionSummary.opacity > 0
             clip: true
             applications: AppStore.applications
+            active: page.scanning
 
             Behavior on height {
                 NumberAnimation {

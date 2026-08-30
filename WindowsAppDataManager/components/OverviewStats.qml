@@ -21,28 +21,51 @@ Rectangle {
         rows: columns === 2 ? 2 : 1
 
         Repeater {
-            model: [
-                { "icon": Qt.resolvedUrl("../resources/Icons/TablerFileFilled.svg"), "label": "AppData 占用", "value": summary.applications.totalSizeText, "detail": "共 " + summary.applications.totalFileCountText + " 个文件", "accent": Theme.accent },
-                { "icon": Qt.resolvedUrl("../resources/Icons/IcBaselineCleaningServices.svg"), "label": "可重新生成", "value": summary.applications.reclaimableSizeText, "detail": "仍需逐项验证", "accent": Theme.green },
-                { "icon": Qt.resolvedUrl("../resources/Icons/TablerFilesFilled.svg"), "label": "应用归属", "value": summary.applications.count.toString(), "detail": summary.applications.recognizedCount + " 个已识别", "accent": Theme.purple },
-                { "icon": Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg"), "label": "需确认数据", "value": summary.applications.reviewSizeText, "detail": "包含高风险与未知数据", "accent": Theme.amber }
-            ]
+            model: 4
 
             delegate: Item {
                 id: statDelegate
 
                 required property int index
-                required property var modelData
+                readonly property url metricIcon: index === 0
+                                                     ? Qt.resolvedUrl("../resources/Icons/TablerFileFilled.svg")
+                                                     : index === 1
+                                                       ? Qt.resolvedUrl("../resources/Icons/IcBaselineCleaningServices.svg")
+                                                       : index === 2
+                                                         ? Qt.resolvedUrl("../resources/Icons/TablerFilesFilled.svg")
+                                                         : Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")
+                readonly property string metricLabel: index === 0 ? "AppData 占用"
+                                                       : index === 1 ? "可重新生成"
+                                                       : index === 2 ? "应用归属"
+                                                                     : "需确认数据"
+                readonly property string metricValue: index === 0
+                                                       ? summary.applications.totalSizeText
+                                                       : index === 1
+                                                         ? summary.applications.reclaimableSizeText
+                                                         : index === 2
+                                                           ? summary.applications.count.toString()
+                                                           : summary.applications.reviewSizeText
+                readonly property string metricDetail: index === 0
+                                                        ? "共 " + summary.applications.totalFileCountText + " 个文件"
+                                                        : index === 1
+                                                          ? "仍需逐项验证"
+                                                          : index === 2
+                                                            ? summary.applications.recognizedCount + " 个已识别"
+                                                            : "包含高风险与未知数据"
+                readonly property color metricAccent: index === 0 ? Theme.accent
+                                                      : index === 1 ? Theme.green
+                                                      : index === 2 ? Theme.purple
+                                                                    : Theme.amber
                 width: statsGrid.width / statsGrid.columns
                 height: statsGrid.height / statsGrid.rows
 
                 StatTile {
                     anchors.fill: parent
-                    iconSource: statDelegate.modelData.icon
-                    label: statDelegate.modelData.label
-                    value: statDelegate.modelData.value
-                    detail: statDelegate.modelData.detail
-                    accent: statDelegate.modelData.accent
+                    iconSource: statDelegate.metricIcon
+                    label: statDelegate.metricLabel
+                    value: statDelegate.metricValue
+                    detail: statDelegate.metricDetail
+                    accent: statDelegate.metricAccent
                 }
 
                 Rectangle {

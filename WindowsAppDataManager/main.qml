@@ -144,7 +144,7 @@ ApplicationWindow {
         completed: window.scanController.progress === 100
                    && window.scanController.errorMessage.length === 0
         detailVisible: window.showDetails
-        selectedApplicationName: AppStore.applications.count > 0
+        selectedApplicationName: !window.scanning && AppStore.applications.count > 0
                                  ? AppStore.selectedApplication.appName : ""
         currentPath: window.scanController.currentPath.length > 0
                      ? window.scanController.currentPath : window.scanController.targetPath
@@ -167,6 +167,7 @@ ApplicationWindow {
             applicationDetailPageIndex: window.applicationDetailPageIndex
             cleanupPageIndex: window.cleanupPageIndex
             settingsPageIndex: window.settingsPageIndex
+            scanning: window.scanning
             onPageRequested: pageIndex => window.currentPage = pageIndex
         }
 
@@ -205,7 +206,10 @@ ApplicationWindow {
             }
 
             ApplicationDetailPage {
-                application: AppStore.selectedApplication
+                application: window.currentPage === window.applicationDetailPageIndex
+                             && !window.scanning
+                             ? AppStore.selectedApplication
+                             : AppStore.emptyApplicationData
                 onBackRequested: window.returnToApplications()
             }
 
@@ -226,7 +230,8 @@ ApplicationWindow {
             Layout.maximumWidth: window.detailPanelExtent
             Layout.fillHeight: true
             visible: window.detailPanelExtent > 0
-            rowData: AppStore.selectedApplication
+            rowData: window.showDetails ? AppStore.selectedApplication
+                                        : AppStore.emptyApplicationData
             onCloseRequested: window.detailPaneOpen = false
         }
     }

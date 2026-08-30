@@ -110,27 +110,35 @@ Rectangle {
                 rowSpacing: 0
 
                 Repeater {
-                    model: [
-                        { "icon": Qt.resolvedUrl("../resources/Icons/TablerFiles.svg"),
-                          "label": "已分析应用", "value": panel.applications.count.toString(),
-                          "accent": Theme.purple },
-                        { "icon": Qt.resolvedUrl("../resources/Icons/TablerFileFilled.svg"),
-                          "label": "已分析文件", "value": panel.applications.totalFileCountText,
-                          "accent": Theme.cyan },
-                        { "icon": Qt.resolvedUrl("../resources/Icons/TablerChartPieFilled.svg"),
-                          "label": "已分析占用", "value": panel.applications.totalSizeText,
-                          "accent": Theme.green },
-                        { "icon": Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg"),
-                          "label": "读取问题",
-                          "value": panel.issueCount.toString(),
-                          "accent": panel.issueCount > 0 ? Theme.amber : Theme.neutral }
-                    ]
+                    model: 4
 
                     delegate: Item {
                         id: metric
 
                         required property int index
-                        required property var modelData
+                        readonly property url metricIcon: index === 0
+                                                             ? Qt.resolvedUrl("../resources/Icons/TablerFiles.svg")
+                                                             : index === 1
+                                                               ? Qt.resolvedUrl("../resources/Icons/TablerFileFilled.svg")
+                                                               : index === 2
+                                                                 ? Qt.resolvedUrl("../resources/Icons/TablerChartPieFilled.svg")
+                                                                 : Qt.resolvedUrl("../resources/Icons/TablerExclamationMark.svg")
+                        readonly property string metricLabel: index === 0 ? "已分析应用"
+                                                               : index === 1 ? "已分析文件"
+                                                               : index === 2 ? "已分析占用"
+                                                                             : "读取问题"
+                        readonly property string metricValue: index === 0
+                                                               ? panel.applications.count.toString()
+                                                               : index === 1
+                                                                 ? panel.applications.totalFileCountText
+                                                                 : index === 2
+                                                                   ? panel.applications.totalSizeText
+                                                                   : panel.issueCount.toString()
+                        readonly property color metricAccent: index === 0 ? Theme.purple
+                                                              : index === 1 ? Theme.cyan
+                                                              : index === 2 ? Theme.green
+                                                              : panel.issueCount > 0
+                                                                ? Theme.amber : Theme.neutral
 
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -145,8 +153,8 @@ Rectangle {
                             ThemedIcon {
                                 Layout.preferredWidth: 17
                                 Layout.preferredHeight: 17
-                                source: metric.modelData.icon
-                                color: metric.modelData.accent
+                                source: metric.metricIcon
+                                color: metric.metricAccent
                             }
 
                             Column {
@@ -155,7 +163,7 @@ Rectangle {
 
                                 Text {
                                     width: parent.width
-                                    text: metric.modelData.label
+                                    text: metric.metricLabel
                                     color: Theme.textMuted
                                     font.pixelSize: 10
                                     elide: Text.ElideRight
@@ -163,7 +171,7 @@ Rectangle {
 
                                 Text {
                                     width: parent.width
-                                    text: metric.modelData.value
+                                    text: metric.metricValue
                                     color: Theme.textPrimary
                                     font.pixelSize: 13
                                     font.weight: Font.DemiBold

@@ -246,15 +246,18 @@ Rectangle {
             spacing: 0
 
             Repeater {
-                model: panel.visibleRecentPaths
+                model: 3
 
                 delegate: RowLayout {
                     id: recentPathRow
 
-                    required property string modelData
+                    required property int index
+                    readonly property string path: index < panel.visibleRecentPaths.length
+                                                   ? panel.visibleRecentPaths[index] : ""
 
+                    visible: path.length > 0
                     width: parent.width
-                    height: 28
+                    height: visible ? 28 : 0
                     spacing: 8
 
                     ThemedIcon {
@@ -266,7 +269,7 @@ Rectangle {
 
                     Text {
                         Layout.fillWidth: true
-                        text: panel.pathName(recentPathRow.modelData)
+                        text: panel.pathName(recentPathRow.path)
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         elide: Text.ElideRight

@@ -60,7 +60,7 @@ Rectangle {
                 rowIndex: index
                 rowData: {
                     const revision = list.applications.revision
-                    return list.applications.get(index)
+                    return list.applications.getSummary(index)
                 }
                 selected: list.selectedIndex === index
                 onActivated: selectedIndex => list.applicationSelected(selectedIndex)
