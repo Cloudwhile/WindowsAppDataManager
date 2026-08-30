@@ -9,8 +9,15 @@
 namespace wam::qmlmodels {
 namespace {
 
-constexpr int applicationUpdatesPerFrame = 24;
+constexpr int applicationUpdatesPerFrame = 4;
 constexpr int applicationUpdateIntervalMs = 16;
+
+ApplicationInfo applicationForDisplay(const ApplicationInfo &application)
+{
+    ApplicationInfo displayApplication = application;
+    displayApplication.cleanupCandidates.clear();
+    return displayApplication;
+}
 
 } // namespace
 
@@ -23,6 +30,7 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
 
     m_applicationUpdateTimer.setSingleShot(true);
     m_applicationUpdateTimer.setInterval(applicationUpdateIntervalMs);
+    m_applicationUpdateTimer.setTimerType(Qt::PreciseTimer);
     connect(&m_applicationUpdateTimer, &QTimer::timeout,
             this, &ScanViewModel::processPendingApplicationUpdates);
 
@@ -33,8 +41,8 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
         m_preScanApplications = m_applicationModel->applications();
         m_preScanIssueCount = m_acceptedIssueCount;
         m_scanTransactionActive = true;
-        m_applicationModel->clear();
         setRunning(true);
+        m_applicationModel->clear();
         setProgress(0);
         setCurrentPath({});
         if (!m_recentPaths.isEmpty()) {
@@ -50,7 +58,8 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
         // 路径更新和批量结果更新来自两条队列；快速扫描时到达顺序可能交错。
         // 扫描期间只接受向前的进度，避免数字进度短暂回跳。
         setProgress(std::max(m_progress, value));
-        setCurrentPath(QDir::toNativeSeparators(path));
+        if (!path.isEmpty())
+            setCurrentPath(QDir::toNativeSeparators(path));
     });
     connect(&m_service, &services::ScanService::scanUpdatesReady,
             this, [this](const QVector<ApplicationInfo> &applications,
@@ -70,17 +79,19 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
                                   .arg(completedTargets)
                                   .arg(totalTargets));
         }
-        if (!m_applicationUpdateTimer.isActive())
-            processPendingApplicationUpdates();
+        if (!m_pendingApplications.isEmpty()
+                && !m_applicationUpdateTimer.isActive()) {
+            m_applicationUpdateTimer.start();
+        }
     });
     connect(&m_service, &services::ScanService::scanCompleted,
             this, [this](const ScanResult &result) {
         setCurrentPath({});
         if (result.cancelled) {
             clearPendingApplicationUpdates();
-            setRunning(false);
             setProgress(0);
             restorePreScanSnapshot();
+            setRunning(false);
             setStatusText(QStringLiteral("扫描已取消，保留上一次完整结果"));
             return;
         }
@@ -93,14 +104,14 @@ ScanViewModel::ScanViewModel(ApplicationListModel *applicationModel, QObject *pa
         setProgress(100);
         setStatusText(QStringLiteral("正在整理扫描结果…"));
         if (!m_applicationUpdateTimer.isActive())
-            processPendingApplicationUpdates();
+            m_applicationUpdateTimer.start();
     });
     connect(&m_service, &services::ScanService::scanFailed,
             this, [this](const QString &message, const QString &detail) {
         clearPendingApplicationUpdates();
-        setRunning(false);
         setCurrentPath({});
         restorePreScanSnapshot();
+        setRunning(false);
         setStatusText(message);
         m_errorMessage = message;
         m_technicalDetail = detail;
@@ -197,8 +208,10 @@ void ScanViewModel::setIssueCount(int issueCount)
 void ScanViewModel::enqueueApplicationUpdates(
         const QVector<ApplicationInfo> &applications)
 {
-    for (const ApplicationInfo &application : applications)
-        m_pendingApplications.insert(application.id, application);
+    for (const ApplicationInfo &application : applications) {
+        m_pendingApplications.insert(
+                application.id, applicationForDisplay(application));
+    }
 }
 
 void ScanViewModel::processPendingApplicationUpdates()

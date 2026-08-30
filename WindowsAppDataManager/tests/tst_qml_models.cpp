@@ -133,6 +133,8 @@ void QmlModelsTest::applicationListMergesScanUpdatesWithoutReset()
 
     QSignalSpy resetSpy(&applications, &QAbstractItemModel::modelReset);
     QSignalSpy insertedSpy(&applications, &QAbstractItemModel::rowsInserted);
+    QSignalSpy movedSpy(&applications, &QAbstractItemModel::rowsMoved);
+    QSignalSpy layoutSpy(&applications, &QAbstractItemModel::layoutChanged);
     QSignalSpy changedSpy(&applications, &QAbstractItemModel::dataChanged);
     QSignalSpy revisionSpy(
             &applications, &wam::qmlmodels::ApplicationListModel::revisionChanged);
@@ -146,6 +148,8 @@ void QmlModelsTest::applicationListMergesScanUpdatesWithoutReset()
 
     QCOMPARE(resetSpy.count(), 0);
     QCOMPARE(insertedSpy.count(), 1);
+    QCOMPARE(movedSpy.count(), 0);
+    QCOMPARE(layoutSpy.count(), 0);
     QCOMPARE(changedSpy.count(), 1);
     QCOMPARE(revisionSpy.count(), 1);
     QCOMPARE(applications.count(), 2);
@@ -155,6 +159,13 @@ void QmlModelsTest::applicationListMergesScanUpdatesWithoutReset()
     QCOMPARE(applications.maximumSizeValue(), 50.0);
     QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
              QStringLiteral("alpha"));
+    const QVariantMap alphaSummary = applications.getSummary(0);
+    QCOMPARE(alphaSummary.value(QStringLiteral("appId")).toString(),
+             QStringLiteral("alpha"));
+    QCOMPARE(alphaSummary.value(QStringLiteral("sizeValue")).toULongLong(),
+             50ULL);
+    QVERIFY(!alphaSummary.contains(QStringLiteral("dataGroups")));
+    QVERIFY(!alphaSummary.contains(QStringLiteral("evidence")));
 
     applications.mergeScanUpdates({alpha, beta});
     QCOMPARE(resetSpy.count(), 0);
@@ -173,6 +184,44 @@ void QmlModelsTest::applicationListMergesScanUpdatesWithoutReset()
              QStringLiteral("alpha"));
     QCOMPARE(applications.get(2).value(QStringLiteral("appId")).toString(),
              QStringLiteral("beta"));
+
+    insertedSpy.clear();
+    wam::ApplicationInfo delta = application(
+            QStringLiteral("delta"), QStringLiteral("Delta"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 60,
+            RiskLevel::Low, InstallState::Installed);
+    wam::ApplicationInfo epsilon = application(
+            QStringLiteral("epsilon"), QStringLiteral("Epsilon"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 5,
+            RiskLevel::Low, InstallState::Installed);
+    constexpr int upstreamBatchSize = 2;
+    applications.mergeScanUpdates({delta, epsilon});
+    QCOMPARE(insertedSpy.count(), upstreamBatchSize);
+    for (const QList<QVariant> &arguments : insertedSpy) {
+        const int first = arguments.at(1).toInt();
+        const int last = arguments.at(2).toInt();
+        QVERIFY(last >= first);
+        QVERIFY(last - first + 1 <= upstreamBatchSize);
+    }
+    QCOMPARE(layoutSpy.count(), 0);
+
+    movedSpy.clear();
+    beta.totalSize = 90;
+    applications.mergeScanUpdates({beta});
+    QCOMPARE(movedSpy.count(), 1);
+    QCOMPARE(layoutSpy.count(), 0);
+    QCOMPARE(applications.indexOfId(QStringLiteral("beta")), 0);
+    QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
+             QStringLiteral("beta"));
+    QCOMPARE(applications.maximumSizeValue(), 90.0);
+
+    beta.totalSize = 1;
+    applications.mergeScanUpdates({beta});
+    QCOMPARE(movedSpy.count(), 2);
+    QCOMPARE(layoutSpy.count(), 0);
+    QCOMPARE(applications.indexOfId(QStringLiteral("beta")),
+             applications.count() - 1);
+    QCOMPARE(applications.maximumSizeValue(), 75.0);
 }
 
 void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
@@ -457,8 +506,11 @@ void QmlModelsTest::scanServicePublishesCompletedTargetUpdates()
     int previousProgress = 0;
     for (const QList<QVariant> &arguments : progressSpy) {
         const int progress = arguments.constFirst().toInt();
+        const QString path = arguments.at(1).toString();
         QVERIFY(progress >= previousProgress);
         QVERIFY(progress <= 100);
+        if (path.isEmpty())
+            QCOMPARE(progress, 100);
         previousProgress = progress;
     }
     QCOMPARE(previousProgress, 100);
@@ -603,25 +655,31 @@ void QmlModelsTest::viewModelBatchesLargeScanUpdates()
                 static_cast<quint64>(index + 1),
                 wam::RiskLevel::Low, wam::InstallState::Installed));
     }
+    updates.first().cleanupCandidates.append(wam::CleanupCandidateInfo {});
 
     service->scanStarted();
     resetSpy.clear();
     service->scanUpdatesReady(updates, 0, applicationCount, applicationCount);
 
-    QCOMPARE(applications.count(), 24);
+    QTRY_VERIFY_WITH_TIMEOUT(!insertedSpy.isEmpty(), 2000);
     QTRY_COMPARE_WITH_TIMEOUT(applications.count(), applicationCount, 2000);
     QCOMPARE(applications.get(0).value(QStringLiteral("sizeValue")).toULongLong(),
              static_cast<quint64>(applicationCount));
     QCOMPARE(applications.get(applicationCount - 1)
                      .value(QStringLiteral("sizeValue")).toULongLong(),
              1ULL);
+    const int firstApplicationIndex = applications.indexOfId(
+            QStringLiteral("app-000"));
+    QVERIFY(firstApplicationIndex >= 0);
+    QVERIFY(applications.applications()
+                    .at(firstApplicationIndex).cleanupCandidates.isEmpty());
     QCOMPARE(resetSpy.count(), 0);
-    QVERIFY(insertedSpy.size() >= 4);
+    QVERIFY(insertedSpy.size() >= applicationCount / 4);
     for (const QList<QVariant> &arguments : insertedSpy) {
         const int first = arguments.at(1).toInt();
         const int last = arguments.at(2).toInt();
         QVERIFY(last >= first);
-        QVERIFY(last - first + 1 <= 24);
+        QVERIFY(last - first + 1 <= 4);
     }
 
     wam::ScanResult finalResult;
@@ -631,6 +689,9 @@ void QmlModelsTest::viewModelBatchesLargeScanUpdates()
     QCOMPARE(applications.count(), applicationCount);
     QCOMPARE(resetSpy.count(), 0);
     QCOMPARE(acceptedSpy.count(), 1);
+    const wam::ScanResult acceptedResult = qvariant_cast<wam::ScanResult>(
+            acceptedSpy.constFirst().constFirst());
+    QCOMPARE(acceptedResult.applications.constFirst().cleanupCandidates.size(), 1);
 }
 
 void QmlModelsTest::viewModelKeepsInterleavedProgressMonotonic()
@@ -660,6 +721,8 @@ void QmlModelsTest::viewModelKeepsInterleavedProgressMonotonic()
     QCOMPARE(scan.progress(), 97);
     service->progressChanged(100, {});
     QCOMPARE(scan.progress(), 100);
+    QCOMPARE(scan.currentPath(), QDir::toNativeSeparators(
+                                      QStringLiteral("C:/扫描/当前路径")));
 
     int previousProgress = 0;
     for (const int progress : observedProgress) {
@@ -668,7 +731,8 @@ void QmlModelsTest::viewModelKeepsInterleavedProgressMonotonic()
     }
 
     service->scanCompleted({});
-    QVERIFY(!scan.running());
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 2000);
+    QVERIFY(scan.currentPath().isEmpty());
 }
 
 void QmlModelsTest::viewModelPreservesAcceptedIssuesAcrossInterruptedScan()
@@ -688,6 +752,7 @@ void QmlModelsTest::viewModelPreservesAcceptedIssuesAcrossInterruptedScan()
 
     service->scanStarted();
     service->scanCompleted(accepted);
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 2000);
     QCOMPARE(scan.issueCount(), 2);
     QVERIFY(scan.partialResult());
     QCOMPARE(applications.count(), 1);
@@ -723,6 +788,7 @@ void QmlModelsTest::viewModelPreservesAcceptedIssuesAcrossInterruptedScan()
     QCOMPARE(scan.issueCount(), 0);
     service->scanUpdatesReady(incremental.applications,
                               incremental.issues.size(), 1, 3);
+    QTRY_COMPARE_WITH_TIMEOUT(applications.count(), 1, 2000);
     QCOMPARE(applications.count(), 1);
     QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
              QStringLiteral("incremental"));
@@ -744,6 +810,7 @@ void QmlModelsTest::viewModelPreservesAcceptedIssuesAcrossInterruptedScan()
     QCOMPARE(scan.issueCount(), 0);
     service->scanUpdatesReady(incremental.applications,
                               incremental.issues.size(), 1, 2);
+    QTRY_COMPARE_WITH_TIMEOUT(applications.count(), 1, 2000);
     QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
              QStringLiteral("incremental"));
     QCOMPARE(acceptedSpy.count(), 0);
@@ -762,7 +829,8 @@ void QmlModelsTest::viewModelPreservesAcceptedIssuesAcrossInterruptedScan()
                               incremental.issues.size(), 1, 1);
     QCOMPARE(acceptedSpy.count(), 0);
     service->scanCompleted(incremental);
-    QCOMPARE(acceptedSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(acceptedSpy.count(), 1, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!scan.running(), 2000);
     QCOMPARE(applications.get(0).value(QStringLiteral("appId")).toString(),
              QStringLiteral("incremental"));
     QCOMPARE(scan.issueCount(), 4);

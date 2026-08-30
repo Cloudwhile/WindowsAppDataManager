@@ -46,7 +46,8 @@ struct ScanUpdateDispatchState {
 namespace {
 
 constexpr int updateDeliveryIntervalMs = 50;
-constexpr int maximumParallelScanThreads = 8;
+constexpr auto pathUpdateInterval = std::chrono::milliseconds(200);
+constexpr int maximumParallelScanThreads = 4;
 
 QString displayTarget(const QStringList &roots)
 {
@@ -122,7 +123,7 @@ public:
         : m_totalTargets(totalTargets),
           m_callback(std::move(callback)),
           m_lastStatusUpdate(std::chrono::steady_clock::now()
-                             - std::chrono::milliseconds(100))
+                             - pathUpdateInterval)
     {
     }
 
@@ -130,7 +131,7 @@ public:
     {
         const auto now = std::chrono::steady_clock::now();
         std::lock_guard lock(m_mutex);
-        if (now - m_lastStatusUpdate < std::chrono::milliseconds(100))
+        if (now - m_lastStatusUpdate < pathUpdateInterval)
             return;
         m_lastStatusUpdate = now;
         m_callback(m_lastProgress, path);
@@ -144,7 +145,6 @@ public:
         if (progress <= m_lastProgress)
             return;
         m_lastProgress = progress;
-        m_callback(m_lastProgress, {});
     }
 
     void reportFinished()
@@ -612,6 +612,7 @@ ScanResult performScan(
             ? idealThreadCount - 1 : idealThreadCount;
     targetPool.setMaxThreadCount(std::min(
             {totalTargets, responsiveThreadCount, maximumParallelScanThreads}));
+    targetPool.setThreadPriority(QThread::LowPriority);
 
     const auto mapTarget = [&](int targetIndex) {
         TargetScanOutcome outcome;
@@ -678,11 +679,13 @@ ScanResult performScan(
         if (mergedApplication == accumulator.merged.result.applications.cend())
             return;
 
-        updateCallback(finalizedApplication(
-                               *mergedApplication,
-                               accumulator.merged.exclusiveLocations.value(
-                                       applicationId, false),
-                               false),
+        ApplicationInfo progressiveApplication = finalizedApplication(
+                *mergedApplication,
+                accumulator.merged.exclusiveLocations.value(
+                        applicationId, false),
+                false);
+        progressiveApplication.cleanupCandidates.clear();
+        updateCallback(std::move(progressiveApplication),
                        accumulator.merged.result.issues.size(),
                        accumulator.completedTargets, totalTargets);
     };
@@ -723,7 +726,8 @@ ScanService::ScanService(QObject *parent)
     connect(&m_watcher, &QFutureWatcher<ScanResult>::finished, this, [this] {
         m_acceptingUpdates = false;
         try {
-            emit scanCompleted(m_watcher.result());
+            ScanResult result = m_watcher.future().takeResult();
+            emit scanCompleted(result);
         } catch (const std::exception &exception) {
             emit scanFailed(QStringLiteral("扫描未能完成"),
                             QString::fromUtf8(exception.what()));

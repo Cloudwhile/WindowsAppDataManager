@@ -376,7 +376,8 @@ void CleanupTest::planBuilderRejectsOverlappingPaths()
     QVERIFY(temporary.isValid());
     const QString scanRoot = QDir(temporary.path()).filePath(QStringLiteral("Local"));
     wam::ApplicationInfo application = eligibleApplication(scanRoot);
-    wam::CleanupCandidateInfo nested = application.cleanupCandidates.constFirst();
+    const wam::CleanupCandidateInfo parent = application.cleanupCandidates.constFirst();
+    wam::CleanupCandidateInfo nested = parent;
     nested.id = QStringLiteral("nested-cache");
     nested.path = QDir(nested.path).filePath(QStringLiteral("Code Cache"));
     application.cleanupCandidates.append(nested);
@@ -385,8 +386,17 @@ void CleanupTest::planBuilderRejectsOverlappingPaths()
             {application}, buildContext(scanRoot));
 
     QCOMPARE(plan.items.size(), 1);
+    QCOMPARE(plan.items.constFirst().candidate.id, parent.id);
     QCOMPARE(plan.excludedCount, 1);
     QVERIFY(plan.exclusionReasons.constFirst().contains(QStringLiteral("重叠")));
+
+    application.cleanupCandidates = {nested, parent};
+    const wam::CleanupPlan reversedPlan = wam::core::CleanupPlanBuilder::build(
+            {application}, buildContext(scanRoot));
+
+    QCOMPARE(reversedPlan.items.size(), 1);
+    QCOMPARE(reversedPlan.items.constFirst().candidate.id, nested.id);
+    QCOMPARE(reversedPlan.excludedCount, 1);
 }
 
 void CleanupTest::planModelRequiresExplicitPendingSelection()
@@ -436,13 +446,27 @@ void CleanupTest::scanBuildsExactCandidateAndDetectsSensitivePollution()
     cacheFile.close();
 
     wam::services::ScanService service;
+    QSignalSpy updateSpy(&service, &wam::services::ScanService::scanUpdatesReady);
     QSignalSpy completedSpy(&service, &wam::services::ScanService::scanCompleted);
     QSignalSpy failedSpy(&service, &wam::services::ScanService::scanFailed);
+    QVERIFY(updateSpy.isValid());
     QVERIFY(completedSpy.isValid());
     QVERIFY(failedSpy.isValid());
     service.startScan({localRoot, roamingRoot});
     QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, 10000);
     QCOMPARE(failedSpy.count(), 0);
+
+    bool observedProgressiveDiscord = false;
+    for (const QList<QVariant> &arguments : updateSpy) {
+        const QVector<wam::ApplicationInfo> applications =
+                qvariant_cast<QVector<wam::ApplicationInfo>>(arguments.constFirst());
+        for (const wam::ApplicationInfo &application : applications) {
+            QVERIFY(application.cleanupCandidates.isEmpty());
+            observedProgressiveDiscord = observedProgressiveDiscord
+                    || application.id == QStringLiteral("discord");
+        }
+    }
+    QVERIFY(observedProgressiveDiscord);
 
     const auto firstResult = qvariant_cast<wam::ScanResult>(
             completedSpy.constFirst().constFirst());

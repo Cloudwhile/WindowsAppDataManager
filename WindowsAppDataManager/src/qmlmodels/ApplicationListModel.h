@@ -3,6 +3,7 @@
 #include "../models/ApplicationInfo.h"
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
 
@@ -79,6 +80,7 @@ public:
     [[nodiscard]] double maximumSizeValue() const;
 
     Q_INVOKABLE [[nodiscard]] QVariantMap get(int index) const;
+    Q_INVOKABLE [[nodiscard]] QVariantMap getSummary(int index) const;
     Q_INVOKABLE [[nodiscard]] int indexOfId(const QString &applicationId) const;
 
     [[nodiscard]] const QVector<ApplicationInfo> &applications() const;
@@ -92,10 +94,22 @@ signals:
     void summaryChanged();
 
 private:
+    [[nodiscard]] QVariantMap applicationSummaryMap(
+            const ApplicationInfo &application) const;
     [[nodiscard]] QVariantMap applicationMap(const ApplicationInfo &application) const;
+    [[nodiscard]] int insertionRowFor(
+            const ApplicationInfo &application,
+            int excludedRow = -1) const;
+    void reindexRows(int firstRow, int lastRow);
+    void rebuildRowIndex();
+    void addToSummary(const ApplicationInfo &application);
+    void replaceInSummary(const ApplicationInfo &previous,
+                          const ApplicationInfo &replacement);
+    void rebuildMaximumSize();
     void updateSummary();
 
     QVector<ApplicationInfo> m_applications;
+    QHash<QString, int> m_rowsById;
     quint64 m_totalSize = 0;
     quint64 m_reclaimableSize = 0;
     quint64 m_totalFileCount = 0;

@@ -7,6 +7,8 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <iterator>
+#include <set>
 
 namespace wam::core {
 namespace {
@@ -85,6 +87,44 @@ void addRejection(QHash<QString, int> &rejections, const QString &reason)
     rejections[reason] = rejections.value(reason) + 1;
 }
 
+struct PathComponentsLess {
+    bool operator()(const QStringList &left, const QStringList &right) const
+    {
+        return std::lexicographical_compare(
+                left.cbegin(), left.cend(), right.cbegin(), right.cend(),
+                [](const QString &leftPart, const QString &rightPart) {
+            return leftPart.compare(rightPart, Qt::CaseSensitive) < 0;
+        });
+    }
+};
+
+bool componentsOverlap(const QStringList &left, const QStringList &right)
+{
+    const qsizetype sharedSize = std::min(left.size(), right.size());
+    return std::equal(left.cbegin(), left.cbegin() + sharedSize,
+                      right.cbegin());
+}
+
+QStringList pathComponents(const QString &normalizedPath)
+{
+    return normalizedPath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+}
+
+bool overlapsAcceptedPath(
+        const std::set<QStringList, PathComponentsLess> &acceptedPaths,
+        const QStringList &candidatePath)
+{
+    const auto next = acceptedPaths.lower_bound(candidatePath);
+    if (next != acceptedPaths.cend()
+            && componentsOverlap(candidatePath, *next)) {
+        return true;
+    }
+    if (next == acceptedPaths.cbegin())
+        return false;
+
+    return componentsOverlap(candidatePath, *std::prev(next));
+}
+
 } // namespace
 
 CleanupPlan CleanupPlanBuilder::build(
@@ -98,27 +138,18 @@ CleanupPlan CleanupPlanBuilder::build(
 
     QHash<QString, int> rejections;
     QSet<QString> acceptedIds;
+    std::set<QStringList, PathComponentsLess> acceptedPaths;
     for (const ApplicationInfo &application : applications) {
         for (const CleanupCandidateInfo &candidate : application.cleanupCandidates) {
             QString reason = rejectionReason(application, candidate, context);
             const QString candidatePathKey = rules::normalizedPathKey(candidate.path);
+            const QStringList candidatePath = pathComponents(candidatePathKey);
             if (reason.isEmpty() && acceptedIds.contains(candidate.id)) {
                 reason = QStringLiteral("清理候选标识重复");
             }
-            if (reason.isEmpty()) {
-                const bool overlaps = std::any_of(
-                        plan.items.cbegin(), plan.items.cend(),
-                        [&candidatePathKey](const CleanupPlanItem &existing) {
-                    const QString existingPathKey = rules::normalizedPathKey(
-                            existing.candidate.path);
-                    return candidatePathKey == existingPathKey
-                            || candidatePathKey.startsWith(
-                                    existingPathKey + QLatin1Char('/'))
-                            || existingPathKey.startsWith(
-                                    candidatePathKey + QLatin1Char('/'));
-                });
-                if (overlaps)
-                    reason = QStringLiteral("清理目标与其他候选路径重叠");
+            if (reason.isEmpty()
+                    && overlapsAcceptedPath(acceptedPaths, candidatePath)) {
+                reason = QStringLiteral("清理目标与其他候选路径重叠");
             }
             if (!reason.isEmpty()) {
                 ++plan.excludedCount;
@@ -130,6 +161,7 @@ CleanupPlan CleanupPlanBuilder::build(
             item.candidate = candidate;
             plan.estimatedSize += candidate.size;
             acceptedIds.insert(candidate.id);
+            acceptedPaths.insert(candidatePath);
             plan.items.append(std::move(item));
         }
     }
