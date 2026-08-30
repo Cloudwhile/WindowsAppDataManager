@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -13,6 +14,7 @@ Rectangle {
     required property bool active
 
     readonly property real normalizedProgress: Math.max(0, Math.min(100, progress))
+    readonly property int maximumVisibleRows: 3
     readonly property var visiblePaths: {
         const paths = []
         if (currentPath.length > 0)
@@ -25,6 +27,9 @@ Rectangle {
         }
         return paths
     }
+    readonly property real activityContentHeight: Math.max(64, visiblePaths.length * 52)
+    readonly property real activityViewportHeight: Math.min(activityContentHeight,
+                                                              maximumVisibleRows * 52)
 
     function pathName(path) {
         const normalized = path.replace(/[\\/]+$/, "")
@@ -33,7 +38,7 @@ Rectangle {
                 ? parts[parts.length - 1] : path
     }
 
-    implicitHeight: 48 + Math.max(64, visiblePaths.length * 52)
+    implicitHeight: 48 + activityViewportHeight
     radius: Theme.radiusLarge
     color: Theme.surface
     border.width: 1
@@ -77,118 +82,140 @@ Rectangle {
         color: Theme.divider
     }
 
-    Column {
+    Flickable {
+        id: activityViewport
+
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: header.bottom
         anchors.topMargin: 1
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 1
+        clip: true
+        contentWidth: width
+        contentHeight: activityContent.implicitHeight
+        flickableDirection: Flickable.VerticalFlick
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+        pixelAligned: true
 
-        Repeater {
-            model: 5
+        ScrollBar.vertical: ScrollBar {
+            policy: activityViewport.contentHeight > activityViewport.height
+                    ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        }
 
-            delegate: Item {
-                id: activityRow
+        Column {
+            id: activityContent
 
-                required property int index
-                readonly property string path: index < panel.visiblePaths.length
-                                               ? panel.visiblePaths[index] : ""
-                readonly property bool current: panel.active
-                                                && path === panel.currentPath
+            width: activityViewport.width
 
-                visible: path.length > 0
-                width: parent.width
-                height: visible ? 52 : 0
+            Repeater {
+                model: 5
 
-                Rectangle {
-                    anchors.fill: parent
-                    color: activityRow.current ? Theme.surfaceSelected : "transparent"
+                delegate: Item {
+                    id: activityRow
+
+                    required property int index
+                    readonly property string path: index < panel.visiblePaths.length
+                                                   ? panel.visiblePaths[index] : ""
+                    readonly property bool current: panel.active
+                                                    && path === panel.currentPath
+
+                    visible: path.length > 0
+                    width: parent.width
+                    height: visible ? 52 : 0
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: activityRow.current ? Theme.surfaceSelected : "transparent"
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 18
+                        spacing: 11
+
+                        ThemedIcon {
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            source: activityRow.current
+                                    ? Qt.resolvedUrl("../resources/Icons/TablerActivityHeartbeat.svg")
+                                    : Qt.resolvedUrl("../resources/Icons/TablerCheck.svg")
+                            color: activityRow.current ? Theme.accent : Theme.green
+                        }
+
+                        Column {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            Text {
+                                width: parent.width
+                                text: panel.pathName(activityRow.path)
+                                color: Theme.textPrimary
+                                font.pixelSize: 12
+                                font.weight: activityRow.current ? Font.DemiBold : Font.Medium
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: activityRow.path
+                                color: Theme.textMuted
+                                font.pixelSize: 10
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        Text {
+                            text: activityRow.current ? "当前" : "已扫描"
+                            color: activityRow.current ? Theme.accent : Theme.greenText
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                        }
+                    }
+
+                    Rectangle {
+                        visible: activityRow.path.length > 0
+                                 && activityRow.index < panel.visiblePaths.length - 1
+                        anchors.left: parent.left
+                        anchors.leftMargin: 47
+                        anchors.right: parent.right
+                        anchors.rightMargin: 18
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: Theme.divider
+                    }
                 }
+            }
+
+            Item {
+                width: parent.width
+                height: panel.visiblePaths.length === 0 ? 64 : 0
+                visible: height > 0
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 18
                     anchors.rightMargin: 18
-                    spacing: 11
+                    spacing: 10
 
                     ThemedIcon {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
-                        source: activityRow.current
+                        source: panel.active
                                 ? Qt.resolvedUrl("../resources/Icons/TablerActivityHeartbeat.svg")
-                                : Qt.resolvedUrl("../resources/Icons/TablerCheck.svg")
-                        color: activityRow.current ? Theme.accent : Theme.green
-                    }
-
-                    Column {
-                        Layout.fillWidth: true
-                        spacing: 2
-
-                        Text {
-                            width: parent.width
-                            text: panel.pathName(activityRow.path)
-                            color: Theme.textPrimary
-                            font.pixelSize: 12
-                            font.weight: activityRow.current ? Font.DemiBold : Font.Medium
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: activityRow.path
-                            color: Theme.textMuted
-                            font.pixelSize: 10
-                            elide: Text.ElideMiddle
-                        }
+                                : Qt.resolvedUrl("../resources/Icons/TablerPointFilled.svg")
+                        color: panel.active ? Theme.accent : Theme.textMuted
                     }
 
                     Text {
-                        text: activityRow.current ? "当前" : "已扫描"
-                        color: activityRow.current ? Theme.accent : Theme.greenText
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
+                        Layout.fillWidth: true
+                        text: panel.status
+                        color: Theme.textSecondary
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
                     }
-                }
-
-                Rectangle {
-                    visible: activityRow.path.length > 0
-                             && activityRow.index < panel.visiblePaths.length - 1
-                    anchors.left: parent.left
-                    anchors.leftMargin: 47
-                    anchors.right: parent.right
-                    anchors.rightMargin: 18
-                    anchors.bottom: parent.bottom
-                    height: 1
-                    color: Theme.divider
-                }
-            }
-        }
-
-        Item {
-            width: parent.width
-            height: panel.visiblePaths.length === 0 ? 64 : 0
-            visible: height > 0
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
-                spacing: 10
-
-                ThemedIcon {
-                    Layout.preferredWidth: 18
-                    Layout.preferredHeight: 18
-                    source: panel.active
-                            ? Qt.resolvedUrl("../resources/Icons/TablerActivityHeartbeat.svg")
-                            : Qt.resolvedUrl("../resources/Icons/TablerPointFilled.svg")
-                    color: panel.active ? Theme.accent : Theme.textMuted
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: panel.status
-                    color: Theme.textSecondary
-                    font.pixelSize: 11
-                    elide: Text.ElideRight
                 }
             }
         }
