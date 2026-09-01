@@ -27,7 +27,11 @@ Rectangle {
         }
         return paths
     }
-    readonly property real activityContentHeight: Math.max(64, visiblePaths.length * 52)
+    readonly property real statusContentHeight: Math.max(64,
+                                                         statusMessage.implicitHeight + 28)
+    readonly property real activityContentHeight: visiblePaths.length > 0
+                                                  ? visiblePaths.length * 52
+                                                  : statusContentHeight
     readonly property real activityViewportHeight: Math.min(activityContentHeight,
                                                               maximumVisibleRows * 52)
 
@@ -191,7 +195,8 @@ Rectangle {
 
             Item {
                 width: parent.width
-                height: panel.visiblePaths.length === 0 ? 64 : 0
+                height: panel.visiblePaths.length === 0
+                        ? panel.statusContentHeight : 0
                 visible: height > 0
 
                 RowLayout {
@@ -210,11 +215,15 @@ Rectangle {
                     }
 
                     Text {
+                        id: statusMessage
+
                         Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
                         text: panel.status
                         color: Theme.textSecondary
                         font.pixelSize: 11
-                        elide: Text.ElideRight
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                        elide: Text.ElideNone
                     }
                 }
             }
