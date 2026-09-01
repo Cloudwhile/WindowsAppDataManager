@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -49,12 +50,78 @@ Rectangle {
             color: bar.statusColor
         }
 
-        Text {
+        Flickable {
+            id: statusFlickable
+
+            Layout.preferredWidth: 210
             Layout.maximumWidth: 210
-            text: "扫描状态：" + bar.statusText
-            color: bar.statusColor
-            font.pixelSize: 11
-            elide: Text.ElideMiddle
+            Layout.minimumWidth: 96
+            Layout.preferredHeight: 20
+            Layout.alignment: Qt.AlignVCenter
+            contentWidth: statusLabel.implicitWidth
+            contentHeight: height
+            readonly property real maximumContentX:
+                Math.max(0, contentWidth - width)
+            clip: true
+            pixelAligned: true
+            interactive: contentWidth > width
+            flickableDirection: Flickable.HorizontalFlick
+            boundsBehavior: Flickable.StopAtBounds
+            onMaximumContentXChanged:
+                contentX = Math.min(contentX, maximumContentX)
+
+            Text {
+                id: statusLabel
+
+                anchors.verticalCenter: parent.verticalCenter
+                text: "扫描状态：" + bar.statusText
+                color: bar.statusColor
+                font.pixelSize: 11
+                wrapMode: Text.NoWrap
+                elide: Text.ElideNone
+            }
+
+            WheelHandler {
+                enabled: statusFlickable.interactive
+                acceptedDevices: PointerDevice.Mouse
+                                 | PointerDevice.TouchPad
+                target: null
+
+                onWheel: event => {
+                    const pixel = Math.abs(event.pixelDelta.x)
+                                  >= Math.abs(event.pixelDelta.y)
+                                  ? event.pixelDelta.x : event.pixelDelta.y
+                    const angle = Math.abs(event.angleDelta.x)
+                                  >= Math.abs(event.angleDelta.y)
+                                  ? event.angleDelta.x : event.angleDelta.y
+                    const delta = pixel !== 0 ? pixel : angle / 3
+                    const next = Math.max(0, Math.min(
+                                              statusFlickable.maximumContentX,
+                                              statusFlickable.contentX - delta))
+                    event.accepted = next !== statusFlickable.contentX
+                    statusFlickable.contentX = next
+                }
+            }
+
+            ScrollBar.horizontal: ScrollBar {
+                height: 2
+                padding: 0
+                policy: statusFlickable.interactive
+                        ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+
+                contentItem: Rectangle {
+                    implicitWidth: 24
+                    implicitHeight: 2
+                    radius: 1
+                    color: bar.statusColor
+                    opacity: 0.85
+                }
+
+                background: Rectangle {
+                    radius: 1
+                    color: Theme.divider
+                }
+            }
         }
 
         Rectangle {
