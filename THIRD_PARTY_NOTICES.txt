@@ -1,0 +1,31 @@
+THIRD-PARTY SOFTWARE NOTICES
+
+Windows AppData Manager's own source code is released under the MIT License found in the LICENSE file.
+
+QT 6.9.2
+
+The Windows installer contains unmodified, dynamically linked Qt libraries and plugins supplied by the Qt Project. This distribution uses Qt's GNU Lesser General Public License version 3 option; Qt offers other licensing options as applicable.
+
+The application does not statically link or modify the distributed Qt libraries. The Qt DLLs are installed as separate files and may be replaced with compatible builds.
+
+The complete GNU GPL version 3 and GNU LGPL version 3 texts are in the licenses directory. The licenses/qt directory contains the license texts shipped by the Qt 6.9.2 qtbase, qtdeclarative, and qtsvg source modules. Their official binary-package SPDX inventories, including component copyright notices and license identifiers, are in licenses/qt/sbom. Some license texts cover module components that this installer does not deploy.
+
+See QT_SOURCE_OFFER.txt for the corresponding-source offer and the exact upstream source location.
+
+Qt open-source obligations:
+https://www.qt.io/licensing/open-source-obligations
+
+Unused Qt Virtual Keyboard, Qt Quick 3D, alternate Quick Controls styles, database drivers, image plugins, and optional graphics fallback components are excluded from the installer and checked by the release workflow.
+
+ICON RESOURCES
+
+The application embeds interface icons from Tabler Icons under the MIT License and Google Material Icons under the Apache License 2.0. The exact resource scope, copyright notices, source repositories, modification notice, and full license texts are installed in licenses/icons.
+
+MICROSOFT VISUAL C++ RUNTIME
+
+The installer contains Microsoft Visual C++ Runtime DLLs in app-local form. Microsoft supplies these files under the Microsoft software license terms that accompany Visual Studio.
+
+Microsoft documentation:
+https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+
+Use the release SHA-256 file and GitHub artifact attestation to verify the installer downloaded from GitHub Releases.

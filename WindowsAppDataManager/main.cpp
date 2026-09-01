@@ -6,7 +6,12 @@
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QStyleHints>
+#include <QTimer>
 #include <QWindow>
+
+#ifndef WAM_VERSION
+#define WAM_VERSION "0.1.0"
+#endif
 
 namespace {
 
@@ -43,7 +48,7 @@ int main(int argc, char *argv[])
             || app.arguments().contains(QStringLiteral("--startup-check"));
     QCoreApplication::setOrganizationName(QStringLiteral("WindowsAppDataManager"));
     QCoreApplication::setApplicationName(QStringLiteral("WindowsAppDataManager"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QCoreApplication::setApplicationVersion(QString::fromLatin1(WAM_VERSION));
 
     QQmlApplicationEngine engine;
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/windowsappdatamanager/main.qml")));
@@ -80,8 +85,10 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    if (startupCheck)
-        return 0;
+    if (startupCheck) {
+        QTimer::singleShot(750, &app, &QCoreApplication::quit);
+        return app.exec();
+    }
 
     return app.exec();
 }

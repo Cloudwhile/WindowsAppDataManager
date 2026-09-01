@@ -3,6 +3,12 @@ project(WindowsAppDataManager LANGUAGES CXX)
 
 include(qt.cmake)
 
+set(WAM_VERSION "0.1.0" CACHE STRING "Windows AppData Manager version")
+if(NOT WAM_VERSION MATCHES
+        "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?(\\+[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$")
+    message(FATAL_ERROR "WAM_VERSION must be a semantic version without a leading v")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -135,6 +141,9 @@ elseif(QT_VERSION VERSION_LESS 6.2)
 endif()
 
 qt_add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    WAM_VERSION="${WAM_VERSION}"
+)
 
 if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
     set_source_files_properties(

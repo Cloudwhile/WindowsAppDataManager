@@ -1,0 +1,15 @@
+Qt 6.9.2 Corresponding Source Offer
+
+The Windows AppData Manager installer distributes unmodified Qt 6.9.2 shared libraries under the GNU Lesser General Public License version 3 option.
+
+For at least three years after the last distribution of a release covered by this offer, Cloudwhile will provide anyone who possesses that release with the complete corresponding source code for the LGPL-covered Qt components in that release, including the scripts needed to control compilation and installation. The charge, if any, will not exceed the reasonable cost of physically providing the source.
+
+To request the source, open an issue at:
+https://github.com/Cloudwhile/WindowsAppDataManager/issues
+
+Identify the Windows AppData Manager release tag and state that the request is for the Qt corresponding source covered by this offer.
+
+For immediate convenience, the upstream Qt 6.9.2 source archives are also available at:
+https://download.qt.io/official_releases/qt/6.9/6.9.2/submodules/
+
+The applicable GNU GPL version 3 and GNU LGPL version 3 texts, Qt module license texts, and binary-package SPDX inventories are installed with the application in its licenses directory.

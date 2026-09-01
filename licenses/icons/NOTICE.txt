@@ -1,0 +1,24 @@
+ICON RESOURCE NOTICES
+
+TABLER ICONS
+
+Applies to the SVG resources named Tabler*.svg in WindowsAppDataManager/resources/Icons.
+
+Source: https://github.com/tabler/tabler-icons
+Copyright (c) 2020-2026 Paweł Kuna
+License: MIT
+
+The bundled copies have been renamed, XML-minimized, resized, or adapted to use currentColor for application theming. The complete license is in Tabler-Icons-MIT.txt.
+
+GOOGLE MATERIAL ICONS
+
+Applies to these SVG resources in WindowsAppDataManager/resources/Icons:
+- IcBaselineCleaningServices.svg
+- IcRoundClose.svg
+- IcRoundMinimize.svg
+
+Source: https://github.com/google/material-design-icons
+Copyright Google LLC and contributors
+License: Apache License 2.0
+
+The bundled copies have been renamed, XML-minimized, resized, or adapted to use currentColor for application theming. The complete license is in Google-Material-Icons-Apache-2.0.txt.
