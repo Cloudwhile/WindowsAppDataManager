@@ -5,13 +5,19 @@ import QtQuick
 QtObject {
     id: store
 
-    property int currentIndex: 0
     property string currentApplicationId: ""
     readonly property ApplicationListModel applications: Backend.applications
     readonly property bool scanning: Backend.scan.running
     readonly property var emptyApplicationData: emptyApplication()
-    property var selectedApplication: emptyApplicationData
-    property bool selectionRefreshPending: false
+    readonly property int currentIndex: applications.revision >= 0
+                                        && currentApplicationId.length > 0
+                                        ? applications.indexOfId(currentApplicationId)
+                                        : -1
+    readonly property var selectedApplication: !scanning
+                                               && applications.revision >= 0
+                                               && currentIndex >= 0
+                                               ? applications.get(currentIndex)
+                                               : emptyApplicationData
 
     function emptyApplication() {
         return {
@@ -45,71 +51,50 @@ QtObject {
         }
     }
 
+    function selectApplicationById(applicationId) {
+        if (applicationId.length === 0 || applications.indexOfId(applicationId) < 0)
+            return false
+
+        currentApplicationId = applicationId
+        return true
+    }
+
     function selectApplication(index) {
-        if (index >= 0 && index < applications.count) {
-            currentIndex = index
-            currentApplicationId = applications.getSummary(index).appId
-            if (!scanning)
-                selectedApplication = applications.get(index)
-        }
+        if (index < 0 || index >= applications.count)
+            return false
+        return selectApplicationById(applications.getSummary(index).appId)
     }
 
     function restoreSelection() {
         if (applications.count === 0) {
-            currentIndex = 0
             currentApplicationId = ""
             return
         }
 
-        const restoredIndex = applications.indexOfId(currentApplicationId)
-        if (restoredIndex >= 0) {
-            currentIndex = restoredIndex
-            return
-        }
-
-        currentIndex = Math.min(currentIndex, applications.count - 1)
-        currentApplicationId = applications.getSummary(currentIndex).appId
-    }
-
-    function refreshSelectedApplication() {
-        if (scanning)
+        if (applications.indexOfId(currentApplicationId) >= 0)
             return
 
-        restoreSelection()
-        selectedApplication = applications.count > 0
-                ? applications.get(Math.min(currentIndex, applications.count - 1))
-                : emptyApplicationData
-    }
-
-    function scheduleSelectionRefresh() {
-        if (scanning || selectionRefreshPending)
-            return
-
-        selectionRefreshPending = true
-        Qt.callLater(function() {
-            store.selectionRefreshPending = false
-            store.refreshSelectedApplication()
-        })
+        currentApplicationId = applications.getSummary(0).appId
     }
 
     onScanningChanged: {
-        if (scanning)
-            selectedApplication = emptyApplicationData
-        else
-            refreshSelectedApplication()
+        if (!scanning)
+            restoreSelection()
     }
 
-    Component.onCompleted: store.refreshSelectedApplication()
+    Component.onCompleted: store.restoreSelection()
 
     property Connections modelConnections: Connections {
         target: store.applications
 
         function onCountChanged() {
-            store.scheduleSelectionRefresh()
+            if (!store.scanning)
+                store.restoreSelection()
         }
 
         function onRevisionChanged() {
-            store.scheduleSelectionRefresh()
+            if (!store.scanning)
+                store.restoreSelection()
         }
     }
 }

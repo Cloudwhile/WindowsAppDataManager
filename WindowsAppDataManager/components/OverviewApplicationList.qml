@@ -7,12 +7,13 @@ Rectangle {
     id: list
 
     required property ApplicationListModel applications
-    required property int selectedIndex
+    required property string selectedApplicationId
+    property bool scanning: false
 
-    signal applicationSelected(int index)
+    signal applicationSelected(string applicationId)
     signal applicationsRequested()
 
-    implicitHeight: 312
+    implicitHeight: 53 + Math.min(5, applications.count) * 46
     radius: Theme.radiusMedium
     color: Theme.surface
     border.width: 1
@@ -51,19 +52,48 @@ Rectangle {
 
         Rectangle { width: parent.width; height: 1; color: Theme.divider }
 
-        Repeater {
-            model: Math.min(5, list.applications.count)
+        ListView {
+            id: applicationList
 
-            ApplicationRow {
+            width: parent.width
+            height: Math.min(5, list.applications.count) * 46
+            model: list.applications
+            clip: true
+            interactive: false
+            boundsBehavior: Flickable.StopAtBounds
+            currentIndex: -1
+            keyNavigationEnabled: false
+
+            delegate: ApplicationRow {
                 required property int index
+                required property string appId
+                required property string appName
+                required property string shortName
+                required property string location
+                required property string category
+                required property string sizeText
+                required property string fileCount
+                required property string modified
+                required property string riskText
+                required property int riskLevel
+                required property int accentIndex
+
                 width: parent.width
-                rowIndex: index
-                rowData: {
-                    const revision = list.applications.revision
-                    return list.applications.getSummary(index)
-                }
-                selected: list.selectedIndex === index
-                onActivated: selectedIndex => list.applicationSelected(selectedIndex)
+                rowData: ({
+                    "appId": appId,
+                    "appName": appName,
+                    "shortName": shortName,
+                    "location": location,
+                    "category": category,
+                    "sizeText": sizeText,
+                    "fileCount": fileCount,
+                    "modified": modified,
+                    "riskText": riskText,
+                    "riskLevel": riskLevel,
+                    "accentIndex": accentIndex
+                })
+                selected: !list.scanning && list.selectedApplicationId === appId
+                onActivated: applicationId => list.applicationSelected(applicationId)
             }
         }
     }

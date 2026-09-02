@@ -18,7 +18,7 @@ Flickable {
     property int issueCount: 0
 
     signal scanRequested()
-    signal applicationSelected(int index)
+    signal applicationSelected(string applicationId)
     signal applicationsRequested()
 
     readonly property bool hasResults: AppStore.applications.count > 0
@@ -203,8 +203,9 @@ Flickable {
                      || overviewApplicationList.opacity > 0
             clip: true
             applications: AppStore.applications
-            selectedIndex: AppStore.currentIndex
-            onApplicationSelected: index => page.applicationSelected(index)
+            selectedApplicationId: AppStore.currentApplicationId
+            scanning: page.scanning
+            onApplicationSelected: applicationId => page.applicationSelected(applicationId)
             onApplicationsRequested: page.applicationsRequested()
 
             Behavior on height {

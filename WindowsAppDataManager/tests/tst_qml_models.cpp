@@ -49,6 +49,7 @@ class QmlModelsTest final : public QObject {
 private slots:
     void applicationListFindsStableIdsAndExposesAccentIndices();
     void applicationListMergesScanUpdatesWithoutReset();
+    void applicationListResolvesStableSelectionAfterSortedMutation();
     void applicationListExposesIndependentOrphanAssessment();
     void applicationFilterCombinesSearchAndExactFilters();
     void applicationFilterSortsAndMapsSourceRows();
@@ -222,6 +223,72 @@ void QmlModelsTest::applicationListMergesScanUpdatesWithoutReset()
     QCOMPARE(applications.indexOfId(QStringLiteral("beta")),
              applications.count() - 1);
     QCOMPARE(applications.maximumSizeValue(), 75.0);
+}
+
+void QmlModelsTest::applicationListResolvesStableSelectionAfterSortedMutation()
+{
+    using wam::InstallState;
+    using wam::RiskLevel;
+
+    wam::qmlmodels::ApplicationListModel applications;
+    wam::ApplicationInfo selected = application(
+            QStringLiteral("selected"), QStringLiteral("Bravo Selected"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 200,
+            RiskLevel::Low, InstallState::Installed);
+    applications.setApplications({
+        application(QStringLiteral("leader"), QStringLiteral("Alpha Leader"),
+                    QStringLiteral("Vendor"), QStringLiteral("工具"), 300,
+                    RiskLevel::Low, InstallState::Installed),
+        selected,
+        application(QStringLiteral("trailer"), QStringLiteral("Delta Trailer"),
+                    QStringLiteral("Vendor"), QStringLiteral("工具"), 100,
+                    RiskLevel::Low, InstallState::Installed)
+    });
+
+    wam::qmlmodels::ApplicationFilterModel filter(&applications);
+    filter.setSortMode(1);
+    filter.setSortDescending(false);
+
+    const QString selectedAppId = QStringLiteral("selected");
+    constexpr int selectedProxyIndex = 1;
+    const QVariantMap initialSelection = filter.get(selectedProxyIndex);
+    QCOMPARE(initialSelection.value(QStringLiteral("appId")).toString(),
+             selectedAppId);
+    const int staleNumericIndex = initialSelection.value(
+            QStringLiteral("sourceIndex")).toInt();
+    QCOMPARE(staleNumericIndex, 1);
+
+    QSignalSpy movedSpy(&applications, &QAbstractItemModel::rowsMoved);
+    QSignalSpy insertedSpy(&applications, &QAbstractItemModel::rowsInserted);
+
+    selected.totalSize = 400;
+    applications.mergeScanUpdates({selected});
+    QCOMPARE(movedSpy.count(), 1);
+    QCOMPARE(applications.indexOfId(selectedAppId), 0);
+    const QVariantMap movedSelection = filter.get(selectedProxyIndex);
+    QCOMPARE(movedSelection.value(QStringLiteral("appId")).toString(),
+             selectedAppId);
+    QCOMPARE(movedSelection.value(QStringLiteral("sourceIndex")).toInt(), 0);
+    QCOMPARE(applications.get(staleNumericIndex)
+                     .value(QStringLiteral("appId")).toString(),
+             QStringLiteral("leader"));
+
+    applications.mergeScanUpdates({application(
+            QStringLiteral("inserted"), QStringLiteral("Echo Inserted"),
+            QStringLiteral("Vendor"), QStringLiteral("工具"), 350,
+            RiskLevel::Low, InstallState::Installed)});
+    QCOMPARE(insertedSpy.count(), 1);
+
+    const int resolvedIndex = applications.indexOfId(selectedAppId);
+    QCOMPARE(resolvedIndex, 0);
+    const QVariantMap insertedSelection = filter.get(selectedProxyIndex);
+    QCOMPARE(insertedSelection.value(QStringLiteral("appId")).toString(),
+             selectedAppId);
+    QCOMPARE(insertedSelection.value(QStringLiteral("sourceIndex")).toInt(),
+             resolvedIndex);
+    QCOMPARE(applications.get(staleNumericIndex)
+                     .value(QStringLiteral("appId")).toString(),
+             QStringLiteral("inserted"));
 }
 
 void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()

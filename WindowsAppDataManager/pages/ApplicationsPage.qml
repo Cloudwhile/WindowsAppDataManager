@@ -14,7 +14,7 @@ Item {
     property bool scanFailed: false
     property bool partialResult: false
     signal scanRequested()
-    signal applicationSelected(int index)
+    signal applicationSelected(string applicationId)
 
     readonly property int visibleApplicationCount: filterModel.count
     readonly property bool hasApplications: AppStore.applications.count > 0
@@ -112,9 +112,12 @@ Item {
 
                         required property int index
                         width: ListView.view.width
-                        rowData: page.filterModel.get(index)
-                        rowIndex: rowData.sourceIndex
-                        selected: AppStore.currentIndex === rowIndex
+                        rowData: {
+                            const sourceRevision = AppStore.applications.revision
+                            return sourceRevision >= 0 ? page.filterModel.get(index) : ({})
+                        }
+                        selected: !page.scanning
+                                  && rowData.appId === AppStore.currentApplicationId
                         onActiveFocusChanged: {
                             if (activeFocus) {
                                 applicationList.currentIndex = applicationDelegate.index
@@ -122,7 +125,7 @@ Item {
                                                                     ListView.Contain)
                             }
                         }
-                        onActivated: selectedIndex => page.applicationSelected(selectedIndex)
+                        onActivated: applicationId => page.applicationSelected(applicationId)
                     }
                 }
             }

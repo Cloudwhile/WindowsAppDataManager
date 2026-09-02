@@ -102,8 +102,9 @@ ApplicationWindow {
         settingsController.themeMode = (settingsController.themeMode + 1) % 3
     }
 
-    function openApplication(index) {
-        AppStore.selectApplication(index)
+    function openApplication(applicationId) {
+        if (!AppStore.selectApplicationById(applicationId))
+            return
         if (wideDetailMode)
             detailPaneOpen = true
         else
@@ -212,7 +213,7 @@ ApplicationWindow {
                 partialResult: window.scanController.partialResult
                 issueCount: window.scanController.issueCount
                 onScanRequested: window.toggleScan()
-                onApplicationSelected: index => window.openApplication(index)
+                onApplicationSelected: applicationId => window.openApplication(applicationId)
                 onApplicationsRequested: window.currentPage = window.applicationsPageIndex
             }
 
@@ -224,7 +225,7 @@ ApplicationWindow {
                 scanFailed: window.scanController.errorMessage.length > 0
                 partialResult: window.scanController.partialResult
                 onScanRequested: window.toggleScan()
-                onApplicationSelected: index => window.openApplication(index)
+                onApplicationSelected: applicationId => window.openApplication(applicationId)
             }
 
             ApplicationDetailPage {

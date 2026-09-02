@@ -5,10 +5,9 @@ Item {
     id: row
 
     required property var rowData
-    required property int rowIndex
     property bool selected: false
 
-    signal activated(int index)
+    signal activated(string applicationId)
 
     height: 46
     activeFocusOnTab: true
@@ -25,7 +24,7 @@ Item {
     Accessible.name: rowData.appName + "，" + rowData.sizeText + "，" + rowData.riskText
     Accessible.description: "路径 " + rowData.location + "，分类 " + rowData.category
                             + "，文件数 " + rowData.fileCount
-    Accessible.onPressAction: row.activated(row.rowIndex)
+    Accessible.onPressAction: row.activated(row.rowData.appId)
 
     RowLayout {
         anchors.fill: parent
@@ -136,11 +135,11 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: {
             row.forceActiveFocus()
-            row.activated(row.rowIndex)
+            row.activated(row.rowData.appId)
         }
     }
 
-    Keys.onReturnPressed: row.activated(row.rowIndex)
-    Keys.onEnterPressed: row.activated(row.rowIndex)
-    Keys.onSpacePressed: row.activated(row.rowIndex)
+    Keys.onReturnPressed: row.activated(row.rowData.appId)
+    Keys.onEnterPressed: row.activated(row.rowData.appId)
+    Keys.onSpacePressed: row.activated(row.rowData.appId)
 }
