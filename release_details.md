@@ -1,4 +1,4 @@
-# ICEDR v0.1.0-alpha
+# Windows AppData Manager v0.1.0-alpha
 
 > [!IMPORTANT]
 >

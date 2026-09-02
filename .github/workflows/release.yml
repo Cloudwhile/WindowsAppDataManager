@@ -204,9 +204,6 @@ jobs:
             --release `
             --qmldir "$env:GITHUB_WORKSPACE\WindowsAppDataManager" `
             --no-translations `
-            --no-virtualkeyboard `
-            --no-virtualkeyboardqml `
-            --no-virtualkeyboardsettings `
             --no-compiler-runtime `
             --no-system-d3d-compiler `
             --no-system-dxc-compiler `
