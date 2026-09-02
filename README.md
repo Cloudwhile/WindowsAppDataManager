@@ -155,21 +155,6 @@ ctest --test-dir out/build/local -C Debug --output-on-failure --no-tests=error
 
 涉及清理边界、路径验证或权限处理的改动，应附带失败路径和竞态场景测试。
 
-## 发布维护
-
-[Windows Release 工作流](.github/workflows/release.yml)只从已经存在的语义化版本标签发布，例如 `v0.1.0` 或 `v0.2.0-beta.1`。推送标签后，GitHub Actions 会重新执行 Release 构建、QML 检查和完整测试，部署所需的 Qt 与 MSVC 运行库，再生成 Inno Setup 安装包。工作流会实际完成一次静默安装、隔离启动和静默卸载，最后发布安装程序、SHA-256 校验文件与 GitHub 构建来源证明。
-
-```powershell
-git tag -a v0.1.0 -m "Windows AppData Manager v0.1.0"
-git push origin v0.1.0
-```
-
-如需重试尚未创建 Release 的失败发布，可以让工作流本身在同一个标签上手动运行；工作流不会从分支名隐式创建标签，也不会接受与运行来源不一致的标签。
-
-```powershell
-gh workflow run release.yml --ref v0.1.0 -f tag=v0.1.0
-```
-
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源。
