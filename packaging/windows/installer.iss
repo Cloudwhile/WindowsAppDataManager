@@ -60,7 +60,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
 english.DesktopIcon=Create a &desktop shortcut
-chinesesimplified.DesktopIcon=创建桌面快捷方式(&D)
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
