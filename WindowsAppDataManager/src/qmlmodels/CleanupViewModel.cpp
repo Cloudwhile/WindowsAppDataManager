@@ -5,6 +5,8 @@
 
 #include <QLocale>
 
+#include <algorithm>
+
 namespace wam::qmlmodels {
 namespace {
 
@@ -25,6 +27,18 @@ QString formatSize(quint64 bytes)
             QLocale().toString(value, 'f', decimals), units.at(unit));
 }
 
+int selectedOrdinal(const CleanupPlan &plan, int index)
+{
+    int ordinal = 0;
+    const int itemCount = static_cast<int>(plan.items.size());
+    const int last = std::min(index, itemCount - 1);
+    for (int current = 0; current <= last; ++current) {
+        if (plan.items.at(current).selected)
+            ++ordinal;
+    }
+    return ordinal;
+}
+
 } // namespace
 
 CleanupViewModel::CleanupViewModel(QObject *parent)
@@ -37,44 +51,79 @@ CleanupViewModel::CleanupViewModel(QObject *parent)
     connect(&m_service, &services::CleanupService::cleanupStarted,
             this, [this](const QString &) {
         clearError();
+        setResultVisible(false);
+        setCancelling(false);
         setRunning(true);
         setStatusText(QStringLiteral("正在验证所选清理项目"));
     });
     connect(&m_service, &services::CleanupService::itemChanged,
             this, [this](int index, CleanupItemState state,
                          const QString &message, quint64 releasedSize) {
+        if (!m_running)
+            return;
         m_items.updateItem(index, state, message, releasedSize);
-        setStatusText(message);
+        const int total = m_items.selectedCount();
+        const int ordinal = selectedOrdinal(m_items.plan(), index);
+        const bool currentSelected = index >= 0
+                && index < m_items.plan().items.size()
+                && m_items.plan().items.at(index).selected;
+        if (currentSelected && ordinal > 0 && total > 0) {
+            setStatusText(QStringLiteral("正在处理 %1 / %2：%3")
+                                  .arg(ordinal)
+                                  .arg(total)
+                                  .arg(message));
+        } else {
+            setStatusText(message);
+        }
     });
     connect(&m_service, &services::CleanupService::cleanupCompleted,
             this, [this](const CleanupRunResult &result) {
-        setRunning(false);
         m_items.setPlan(result.plan);
-        setStatusText(result.cancelled
-                      ? QStringLiteral("清理已取消，已完成项目保持记录")
-                      : result.history.failureCount > 0
-                        ? QStringLiteral("清理完成，部分项目因安全检查未处理")
-                        : QStringLiteral("清理完成，已将 %1 移入回收站")
+        setResultVisible(true);
+        setCancelling(false);
+        if (result.cancelled) {
+            setStatusText(QStringLiteral("清理已停止：完成 %1 项，跳过 %2 项，释放 %3")
+                                  .arg(result.history.successCount)
+                                  .arg(m_items.skippedCount())
                                   .arg(formatSize(result.history.releasedSize)));
+        } else if (result.history.failureCount > 0) {
+            setStatusText(QStringLiteral("清理完成：成功 %1 项，未处理 %2 项，释放 %3")
+                                  .arg(result.history.successCount)
+                                  .arg(result.history.failureCount)
+                                  .arg(formatSize(result.history.releasedSize)));
+        } else {
+            setStatusText(QStringLiteral("清理完成：成功 %1 项，释放 %2")
+                                  .arg(result.history.successCount)
+                                  .arg(formatSize(result.history.releasedSize)));
+        }
+        setRunning(false);
         refreshHistory();
         if (result.filesystemOperationAttempted)
             emit rescanRequested();
     });
     connect(&m_service, &services::CleanupService::cleanupFailed,
-            this, [this](const QString &message, const QString &detail) {
-        setRunning(false);
-        setStatusText(message);
-        m_errorMessage = message;
-        m_technicalDetail = detail;
+            this, [this](const CleanupRunResult &result) {
+        if (!result.plan.items.isEmpty()) {
+            m_items.setPlan(result.plan);
+            setResultVisible(true);
+        }
+        setCancelling(false);
+        setStatusText(result.errorMessage);
+        m_errorMessage = result.errorMessage;
+        m_technicalDetail = result.technicalDetail;
         emit errorChanged();
+        setRunning(false);
         refreshHistory();
-        emit rescanRequested();
+        if (result.filesystemOperationAttempted)
+            emit rescanRequested();
     });
     refreshHistory();
 }
 
 CleanupPlanModel *CleanupViewModel::items() { return &m_items; }
 bool CleanupViewModel::running() const { return m_running; }
+bool CleanupViewModel::cancelling() const { return m_cancelling; }
+bool CleanupViewModel::resultVisible() const { return m_resultVisible; }
 bool CleanupViewModel::hasScan() const { return m_hasScan; }
 bool CleanupViewModel::hasPlan() const { return m_items.count() > 0; }
 bool CleanupViewModel::canExecute() const
@@ -101,6 +150,8 @@ void CleanupViewModel::setScanResult(const ScanResult &result)
     m_scanRoots = result.roots;
     m_hasScan = true;
     emit planChanged();
+    if (m_resultVisible)
+        return;
     rebuildPlan();
 }
 
@@ -108,6 +159,7 @@ void CleanupViewModel::rebuildPlan()
 {
     if (m_running)
         return;
+    setResultVisible(false);
     clearError();
     if (!m_hasScan) {
         m_items.setPlan({});
@@ -138,9 +190,10 @@ void CleanupViewModel::executeSelected()
 
 void CleanupViewModel::cancel()
 {
-    if (!m_running)
+    if (!m_running || m_cancelling)
         return;
-    setStatusText(QStringLiteral("正在停止清理…"));
+    setCancelling(true);
+    setStatusText(QStringLiteral("正在停止清理，将在当前项目结束后停止…"));
     m_service.cancel();
 }
 
@@ -150,6 +203,23 @@ void CleanupViewModel::setRunning(bool running)
         return;
     m_running = running;
     emit runningChanged();
+    emit planChanged();
+}
+
+void CleanupViewModel::setCancelling(bool cancelling)
+{
+    if (m_cancelling == cancelling)
+        return;
+    m_cancelling = cancelling;
+    emit cancellingChanged();
+}
+
+void CleanupViewModel::setResultVisible(bool visible)
+{
+    if (m_resultVisible == visible)
+        return;
+    m_resultVisible = visible;
+    emit resultVisibleChanged();
     emit planChanged();
 }
 

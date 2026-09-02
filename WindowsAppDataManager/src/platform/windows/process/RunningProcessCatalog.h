@@ -21,6 +21,7 @@ struct RunningProcessReadIssue {
 struct RunningProcessQueryResult {
     bool supported = false;
     bool available = false;
+    bool enumerationComplete = false;
     bool complete = false;
     QVector<RunningProcessInfo> processes;
     QVector<RunningProcessReadIssue> issues;

@@ -35,6 +35,7 @@ wam::platform::windows::RunningProcessQueryResult completeProcessSnapshot()
     wam::platform::windows::RunningProcessQueryResult result;
     result.supported = true;
     result.available = true;
+    result.enumerationComplete = true;
     result.complete = true;
     return result;
 }
@@ -413,9 +414,18 @@ void CleanupTest::planModelRequiresExplicitPendingSelection()
     model.setPlan(plan);
     QCOMPARE(model.count(), 1);
     QCOMPARE(model.selectedCount(), 0);
+    QCOMPARE(model.selectableCount(), 1);
+    QCOMPARE(model.processedCount(), 0);
+    QVERIFY(!model.allSelectableSelected());
     QCOMPARE(model.data(model.index(0),
                         wam::qmlmodels::CleanupPlanModel::SelectedRole).toBool(),
              false);
+
+    model.setAllSelected(true);
+    QCOMPARE(model.selectedCount(), 1);
+    QVERIFY(model.allSelectableSelected());
+    model.setAllSelected(false);
+    QCOMPARE(model.selectedCount(), 0);
 
     model.setSelected(0, true);
     QCOMPARE(model.selectedCount(), 1);
@@ -424,9 +434,18 @@ void CleanupTest::planModelRequiresExplicitPendingSelection()
              true);
     model.updateItem(0, wam::CleanupItemState::Validating,
                      QStringLiteral("正在验证"), 0);
+    QCOMPARE(model.processedCount(), 0);
+    model.updateItem(0, wam::CleanupItemState::Done,
+                     QStringLiteral("已移动到回收站"), 4096);
+    QCOMPARE(model.selectableCount(), 0);
+    QCOMPARE(model.processedCount(), 1);
+    QCOMPARE(model.successCount(), 1);
+    QCOMPARE(model.skippedCount(), 0);
+    QCOMPARE(model.failureCount(), 0);
+    QVERIFY(!model.allSelectableSelected());
     model.setSelected(0, false);
     QCOMPARE(model.selectedCount(), 1);
-    QVERIFY(summarySpy.count() >= 3);
+    QVERIFY(summarySpy.count() >= 6);
 }
 
 void CleanupTest::scanBuildsExactCandidateAndDetectsSensitivePollution()
@@ -901,10 +920,14 @@ void CleanupTest::serviceCompletesAuditAfterExecutorException()
     QCOMPARE(completedSpy.count(), 0);
     QCOMPARE(executor->callCount(), 1);
     QVERIFY(QFileInfo::exists(candidate->path));
-    QCOMPARE(failedSpy.constFirst().at(0).toString(),
-             QStringLiteral("清理任务未能完成"));
-    QVERIFY(failedSpy.constFirst().at(1).toString().contains(
+    const wam::CleanupRunResult failedResult =
+            qvariant_cast<wam::CleanupRunResult>(
+                    failedSpy.constFirst().constFirst());
+    QCOMPARE(failedResult.errorMessage, QStringLiteral("清理任务未能完成"));
+    QVERIFY(failedResult.technicalDetail.contains(
             QStringLiteral("测试执行器异常")));
+    QCOMPARE(failedResult.plan.items.constFirst().state,
+             wam::CleanupItemState::Failed);
 
     {
         wam::repositories::CleanupHistoryRepository repository(databasePath);

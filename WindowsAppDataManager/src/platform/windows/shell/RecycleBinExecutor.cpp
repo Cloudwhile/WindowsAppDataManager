@@ -180,23 +180,35 @@ services::CleanupExecutionOutcome recycleWindowsPath(
             nativeErrorText(status)
         };
     }
-    status = operation.get()->PerformOperations();
-    if (FAILED(status)) {
+    const HRESULT performStatus = operation.get()->PerformOperations();
+    BOOL aborted = FALSE;
+    const HRESULT abortedStatus =
+            operation.get()->GetAnyOperationsAborted(&aborted);
+    if (performStatus == COPYENGINE_E_USER_CANCELLED) {
         return {
-            false, false, false, static_cast<quint32>(status),
-            QStringLiteral("移动到回收站失败"),
-            nativeErrorText(status)
+            false, true, true, static_cast<quint32>(performStatus),
+            QStringLiteral("回收站操作已取消"),
+            nativeErrorText(performStatus)
         };
     }
-
-    BOOL aborted = FALSE;
-    status = operation.get()->GetAnyOperationsAborted(&aborted);
-    if (FAILED(status) || aborted) {
+    if (FAILED(performStatus)) {
         return {
-            false, true, aborted != FALSE, static_cast<quint32>(status),
-            aborted ? QStringLiteral("回收站操作已取消")
-                    : QStringLiteral("无法确认回收站操作结果"),
-            FAILED(status) ? nativeErrorText(status) : QString()
+            false, false, false, static_cast<quint32>(performStatus),
+            QStringLiteral("移动到回收站失败"),
+            nativeErrorText(performStatus)
+        };
+    }
+    if (FAILED(abortedStatus)) {
+        return {
+            false, true, false, static_cast<quint32>(abortedStatus),
+            QStringLiteral("无法确认回收站操作结果"),
+            nativeErrorText(abortedStatus)
+        };
+    }
+    if (aborted != FALSE) {
+        return {
+            false, true, true, 0,
+            QStringLiteral("回收站操作已中止"), {}
         };
     }
 

@@ -38,7 +38,7 @@ signals:
                      const QString &message,
                      quint64 releasedSize);
     void cleanupCompleted(const wam::CleanupRunResult &result);
-    void cleanupFailed(const QString &message, const QString &technicalDetail);
+    void cleanupFailed(const wam::CleanupRunResult &result);
 
 private:
     QFutureWatcher<CleanupRunResult> m_watcher;

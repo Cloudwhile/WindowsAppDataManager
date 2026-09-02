@@ -98,6 +98,8 @@ private slots:
     void uncollectedExecutablePathRemainsUnknown();
     void runningProcessRemainsCorroboratingEvidence();
     void runningProcessCannotBypassExecutableConflict();
+    void partialRunningProcessSnapshotUsesTargetName_data();
+    void partialRunningProcessSnapshotUsesTargetName();
     void partialRunningProcessSnapshotRemainsConservative();
 };
 
@@ -457,6 +459,58 @@ void InstallationEvidenceTest::runningProcessCannotBypassExecutableConflict()
                         wam::EvidenceStatus::Conflict));
     QVERIFY(hasEvidence(target->application, wam::EvidenceSource::RunningProcess,
                         wam::EvidenceStatus::Matched));
+}
+
+void InstallationEvidenceTest::partialRunningProcessSnapshotUsesTargetName_data()
+{
+    QTest::addColumn<QString>("imageName");
+    QTest::addColumn<int>("expectedStatus");
+    QTest::newRow("unrelated")
+            << QStringLiteral("unrelated.exe")
+            << static_cast<int>(wam::EvidenceStatus::NotFound);
+    QTest::newRow("matching")
+            << QStringLiteral("sample.exe")
+            << static_cast<int>(wam::EvidenceStatus::Incomplete);
+    QTest::newRow("unnamed")
+            << QString()
+            << static_cast<int>(wam::EvidenceStatus::Incomplete);
+}
+
+void InstallationEvidenceTest::partialRunningProcessSnapshotUsesTargetName()
+{
+    QFETCH(QString, imageName);
+    QFETCH(int, expectedStatus);
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    QVERIFY(QDir().mkpath(QDir(local).filePath(QStringLiteral("Sample/App Data"))));
+    const QString executable = QStringLiteral("C:/Apps/Sample/sample.exe");
+    const auto catalog = catalogFor(evidenceRule({}, executable));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability =
+            wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        executable,
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Missing,
+        {}, {}, {}, {},
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+    evidence.runningProcesses.availability =
+            wam::InstallationEvidenceAvailability::Partial;
+    evidence.runningProcesses.enumerationComplete = true;
+    evidence.runningProcesses.records.append({42, imageName, {}});
+
+    const auto targets =
+            wam::core::AppResolver(catalog, evidence).discoverTargets({local});
+    const auto *target = sampleTarget(targets);
+    QVERIFY(target);
+    QVERIFY(hasEvidence(
+            target->application,
+            wam::EvidenceSource::RunningProcess,
+            static_cast<wam::EvidenceStatus>(expectedStatus)));
 }
 
 void InstallationEvidenceTest::partialRunningProcessSnapshotRemainsConservative()

@@ -34,6 +34,17 @@ void appendTechnicalDetail(QString &target, const QString &detail)
     target.append(detail);
 }
 
+bool matchesExpectedIdentity(
+        const CleanupCandidateInfo &candidate,
+        const platform::windows::StablePathIdentityResult &identity)
+{
+    return candidate.identityValid && candidate.directory
+            && identity.state == platform::windows::StablePathState::Present
+            && identity.identity.valid && identity.identity.directory
+            && identity.identity.volumeSerialNumber == candidate.volumeSerialNumber
+            && identity.identity.fileIndex == candidate.fileIndex;
+}
+
 void publishItem(const ItemCallback &callback,
                  int index,
                  CleanupPlanItem &item,
@@ -130,7 +141,16 @@ CleanupRunResult performCleanup(
                     processQuery();
             const core::CleanupValidationResult validation =
                     core::CleanupValidator::validate(
-                            item.candidate, scanRoots, processes);
+                            item.candidate, scanRoots, processes,
+                            *cancelRequested);
+            if (validation.state == core::CleanupValidationState::Cancelled) {
+                result.cancelled = true;
+                publishItem(itemCallback, index, item, CleanupItemState::Skipped,
+                            validation.message);
+                if (!updateItem(item, validation.technicalDetail, false))
+                    break;
+                continue;
+            }
             if (validation.state == core::CleanupValidationState::Missing) {
                 publishItem(itemCallback, index, item, CleanupItemState::Skipped,
                             validation.message);
@@ -177,6 +197,44 @@ CleanupRunResult performCleanup(
             result.filesystemOperationAttempted = true;
             const CleanupExecutionOutcome outcome = executor->moveToRecycleBin(
                     item.candidate);
+            if (outcome.aborted) {
+                result.cancelled = true;
+                cancelRequested->store(true, std::memory_order_relaxed);
+                const auto presence =
+                        platform::windows::StablePathIdentityReader::read(
+                                item.candidate.path);
+                QString technicalDetail = outcome.technicalDetail;
+                appendTechnicalDetail(technicalDetail, presence.technicalDetail);
+
+                if (presence.state == platform::windows::StablePathState::Missing) {
+                    item.releasedSize = item.candidate.size;
+                    result.history.releasedSize += item.releasedSize;
+                    ++result.history.successCount;
+                    allSuccessfulItemsRecoverable = allSuccessfulItemsRecoverable
+                            && outcome.recoverable;
+                    publishItem(itemCallback, index, item, CleanupItemState::Done,
+                                QStringLiteral("已移动到回收站，后续操作已中止"));
+                } else if (matchesExpectedIdentity(item.candidate, presence)) {
+                    publishItem(itemCallback, index, item,
+                                CleanupItemState::Skipped,
+                                outcome.message.isEmpty()
+                                        ? QStringLiteral("回收站操作已中止")
+                                        : outcome.message);
+                } else {
+                    ++result.history.failureCount;
+                    publishItem(
+                            itemCallback, index, item, CleanupItemState::Failed,
+                            presence.state
+                                            == platform::windows::StablePathState::Unavailable
+                                    ? QStringLiteral("回收站操作中止后无法确认目标状态")
+                                    : QStringLiteral("回收站操作中止后目标身份已变化"));
+                }
+                if (!updateItem(item, technicalDetail,
+                                item.state == CleanupItemState::Done
+                                        && outcome.recoverable))
+                    break;
+                continue;
+            }
             if (!outcome.succeeded) {
                 ++result.history.failureCount;
                 publishItem(itemCallback, index, item, CleanupItemState::Failed,
@@ -231,12 +289,15 @@ CleanupRunResult performCleanup(
                 if (!isTerminalState(activeItem.state)) {
                     if (activeItem.selected) {
                         ++result.history.failureCount;
-                        activeItem.state = CleanupItemState::Failed;
-                        activeItem.statusMessage =
-                                QStringLiteral("清理任务异常中止");
+                        publishItem(
+                                itemCallback, activeIndex, activeItem,
+                                CleanupItemState::Failed,
+                                QStringLiteral("清理任务异常中止"));
                     } else {
-                        activeItem.state = CleanupItemState::Skipped;
-                        activeItem.statusMessage = QStringLiteral("未选择该项");
+                        publishItem(
+                                itemCallback, activeIndex, activeItem,
+                                CleanupItemState::Skipped,
+                                QStringLiteral("未选择该项"));
                     }
                 }
                 QString settleError;
@@ -253,10 +314,11 @@ CleanupRunResult performCleanup(
             for (int index = activeIndex + 1;
                  index < result.plan.items.size(); ++index) {
                 CleanupPlanItem &item = result.plan.items[index];
-                item.state = CleanupItemState::Skipped;
-                item.statusMessage = item.selected
-                        ? QStringLiteral("清理因任务异常中止")
-                        : QStringLiteral("未选择该项");
+                publishItem(
+                        itemCallback, index, item, CleanupItemState::Skipped,
+                        item.selected
+                                ? QStringLiteral("清理因任务异常中止")
+                                : QStringLiteral("未选择该项"));
                 QString settleError;
                 if (!history.updateItem(result.plan.id, item, {}, false,
                                         &settleError)) {
@@ -326,16 +388,20 @@ CleanupService::CleanupService(CleanupExecutorPtr executor,
         try {
             const CleanupRunResult result = m_watcher.result();
             if (!result.errorMessage.isEmpty()) {
-                emit cleanupFailed(result.errorMessage, result.technicalDetail);
+                emit cleanupFailed(result);
                 return;
             }
             emit cleanupCompleted(result);
         } catch (const std::exception &error) {
-            emit cleanupFailed(QStringLiteral("清理任务未能完成"),
-                               QString::fromUtf8(error.what()));
+            CleanupRunResult result;
+            result.errorMessage = QStringLiteral("清理任务未能完成");
+            result.technicalDetail = QString::fromUtf8(error.what());
+            emit cleanupFailed(result);
         } catch (...) {
-            emit cleanupFailed(QStringLiteral("清理任务未能完成"),
-                               QStringLiteral("未知后台任务异常"));
+            CleanupRunResult result;
+            result.errorMessage = QStringLiteral("清理任务未能完成");
+            result.technicalDetail = QStringLiteral("未知后台任务异常");
+            emit cleanupFailed(result);
         }
     });
 }
@@ -355,8 +421,16 @@ void CleanupService::execute(CleanupPlan plan, QStringList scanRoots)
 {
     if (isRunning())
         return;
+    const auto rejectPlan = [this, &plan](
+            QString message, QString technicalDetail = {}) {
+        CleanupRunResult result;
+        result.plan = plan;
+        result.errorMessage = std::move(message);
+        result.technicalDetail = std::move(technicalDetail);
+        emit cleanupFailed(result);
+    };
     if (plan.id.isEmpty() || plan.items.isEmpty()) {
-        emit cleanupFailed(QStringLiteral("没有可执行的清理项目"), {});
+        rejectPlan(QStringLiteral("没有可执行的清理项目"));
         return;
     }
 
@@ -366,15 +440,16 @@ void CleanupService::execute(CleanupPlan plan, QStringList scanRoots)
         if (!item.selected)
             continue;
         if (item.state != CleanupItemState::Pending) {
-            emit cleanupFailed(QStringLiteral("清理计划状态已失效"),
-                               QStringLiteral("已选择项目不是等待确认状态，请重新生成计划"));
+            rejectPlan(
+                    QStringLiteral("清理计划状态已失效"),
+                    QStringLiteral("已选择项目不是等待确认状态，请重新生成计划"));
             return;
         }
         hasSelectedItem = true;
         selectedSize += item.candidate.size;
     }
     if (!hasSelectedItem) {
-        emit cleanupFailed(QStringLiteral("尚未选择清理项目"), {});
+        rejectPlan(QStringLiteral("尚未选择清理项目"));
         return;
     }
     plan.estimatedSize = selectedSize;

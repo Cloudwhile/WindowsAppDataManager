@@ -129,6 +129,11 @@ void ExecutablePlatformTest::runningProcessCatalogFindsCurrentProcess()
             wam::platform::windows::RunningProcessCatalog::query();
     QVERIFY(result.supported);
     QVERIFY(result.available);
+    QVERIFY(result.enumerationComplete);
+    for (const auto &process : result.processes) {
+        QVERIFY(process.processId != 0);
+        QVERIFY(!process.imageName.isEmpty());
+    }
 
     const quint32 currentProcessId = static_cast<quint32>(
             QCoreApplication::applicationPid());

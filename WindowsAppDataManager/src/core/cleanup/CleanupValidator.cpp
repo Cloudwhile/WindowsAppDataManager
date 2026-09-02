@@ -5,6 +5,8 @@
 #include "../../platform/windows/filesystem/DeletionAccessProbe.h"
 #include "../../platform/windows/filesystem/StablePathIdentity.h"
 
+#include <QFileInfo>
+
 #include <algorithm>
 #include <atomic>
 
@@ -38,6 +40,22 @@ bool processMatches(const QString &expectedPath,
     });
 }
 
+bool matchingProcessPathUnreadable(
+        const QString &expectedPath,
+        const platform::windows::RunningProcessQueryResult &processes)
+{
+    const QString expectedImageName = QFileInfo(expectedPath).fileName();
+    return !expectedImageName.isEmpty()
+            && std::any_of(
+                    processes.processes.cbegin(), processes.processes.cend(),
+                    [&expectedImageName](const auto &process) {
+        return process.imagePath.isEmpty()
+                && (process.imageName.trimmed().isEmpty()
+                    || process.imageName.compare(
+                               expectedImageName, Qt::CaseInsensitive) == 0);
+    });
+}
+
 bool sameIdentity(const CleanupCandidateInfo &candidate,
                   const platform::windows::StablePathIdentityResult &identity)
 {
@@ -61,11 +79,17 @@ CleanupValidationResult CleanupValidator::validateProcessState(
         const CleanupCandidateInfo &candidate,
         const platform::windows::RunningProcessQueryResult &processes)
 {
-    if (!processes.supported || !processes.available || !processes.complete) {
+    if (!processes.supported || !processes.available) {
         return blocked(QStringLiteral("无法完整确认应用当前没有运行"));
     }
     if (processMatches(candidate.executablePath, processes))
         return blocked(QStringLiteral("应用仍在运行，已取消该项清理"));
+    if (matchingProcessPathUnreadable(candidate.executablePath, processes)) {
+        return blocked(QStringLiteral("检测到同名进程，但无法确认其可执行路径"));
+    }
+    if (!processes.enumerationComplete) {
+        return blocked(QStringLiteral("运行进程枚举未完整结束"));
+    }
     return {CleanupValidationState::Ready,
             QStringLiteral("已再次确认应用没有运行"), {}};
 }
@@ -75,6 +99,20 @@ CleanupValidationResult CleanupValidator::validate(
         const QStringList &scanRoots,
         const platform::windows::RunningProcessQueryResult &processes)
 {
+    std::atomic_bool cancelRequested = false;
+    return validate(candidate, scanRoots, processes, cancelRequested);
+}
+
+CleanupValidationResult CleanupValidator::validate(
+        const CleanupCandidateInfo &candidate,
+        const QStringList &scanRoots,
+        const platform::windows::RunningProcessQueryResult &processes,
+        const std::atomic_bool &cancelRequested)
+{
+    if (cancelRequested.load(std::memory_order_relaxed)) {
+        return {CleanupValidationState::Cancelled,
+                QStringLiteral("清理已取消"), {}};
+    }
     if (!candidate.verifiedRule
             || !candidate.ruleSource.startsWith(QStringLiteral("内置规则 / "))
             || candidate.id.isEmpty() || candidate.applicationId.isEmpty()
@@ -95,6 +133,10 @@ CleanupValidationResult CleanupValidator::validate(
             candidate, processes);
     if (processValidation.state != CleanupValidationState::Ready)
         return processValidation;
+    if (cancelRequested.load(std::memory_order_relaxed)) {
+        return {CleanupValidationState::Cancelled,
+                QStringLiteral("清理已取消"), {}};
+    }
 
     const platform::windows::StablePathIdentityResult identity =
             platform::windows::StablePathIdentityReader::read(candidate.path);
@@ -111,10 +153,25 @@ CleanupValidationResult CleanupValidator::validate(
         return blocked(QStringLiteral("清理目标身份在扫描后发生变化"));
     }
 
-    std::atomic_bool cancelRequested = false;
+    const platform::windows::DeletionAccessResult deletionAccess =
+            platform::windows::DeletionAccessProbe::probe(
+                    candidate.path, cancelRequested);
+    if (deletionAccess.cancelled) {
+        return {CleanupValidationState::Cancelled,
+                QStringLiteral("清理已取消"), {}};
+    }
+    if (!deletionAccess.supported || !deletionAccess.available) {
+        return blocked(QStringLiteral("目录被占用或当前没有删除权限"),
+                       deletionAccess.technicalDetail);
+    }
+
     const DirectoryScanStats stats = DirectoryScanner().scan(
             candidate.path, cancelRequested, {}, {}, {}, true);
-    if (stats.cancelled || !stats.issues.isEmpty() || !stats.stabilityVerified) {
+    if (stats.cancelled) {
+        return {CleanupValidationState::Cancelled,
+                QStringLiteral("清理已取消"), {}};
+    }
+    if (!stats.issues.isEmpty() || !stats.stabilityVerified) {
         const QString detail = stats.issues.isEmpty()
                 ? QStringLiteral("无法形成稳定的二次元数据快照")
                 : stats.issues.constFirst().technicalDetail;
@@ -126,17 +183,15 @@ CleanupValidationResult CleanupValidator::validate(
         return blocked(QStringLiteral("目录内容在扫描后发生变化"));
     }
 
-    const platform::windows::DeletionAccessResult deletionAccess =
-            platform::windows::DeletionAccessProbe::probe(candidate.path);
-    if (!deletionAccess.supported || !deletionAccess.available) {
-        return blocked(QStringLiteral("目录被占用或当前没有删除权限"),
-                       deletionAccess.technicalDetail);
+    if (cancelRequested.load(std::memory_order_relaxed)) {
+        return {CleanupValidationState::Cancelled,
+                QStringLiteral("清理已取消"), {}};
     }
 
     const platform::windows::StablePathIdentityResult finalIdentity =
             platform::windows::StablePathIdentityReader::read(candidate.path);
     if (!sameIdentity(candidate, finalIdentity)) {
-        return blocked(QStringLiteral("清理目标在权限检查期间发生变化"),
+        return blocked(QStringLiteral("清理目标在最终复核期间发生变化"),
                        finalIdentity.technicalDetail);
     }
 

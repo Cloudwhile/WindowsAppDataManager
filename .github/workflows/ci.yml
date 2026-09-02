@@ -130,6 +130,7 @@ jobs:
             "WindowsAppDataManager",
             "wam_backend_tests",
             "wam_cleanup_tests",
+            "wam_cleanup_safety_tests",
             "wam_installation_evidence_tests",
             "wam_executable_evidence_tests",
             "wam_executable_platform_tests",

@@ -486,7 +486,7 @@ ExecutableMatch matchExecutableEvidence(
 
 RunningProcessMatch matchRunningProcessEvidence(
         const QString &expectedPath,
-        const InstallationEvidenceSourceSnapshot<RunningProcessEvidenceRecord> &snapshot)
+        const RunningProcessEvidenceSnapshot &snapshot)
 {
     const QString expectedKey = rules::normalizedPathKey(expectedPath);
     if (expectedKey.isEmpty()) {
@@ -495,10 +495,18 @@ RunningProcessMatch matchRunningProcessEvidence(
     }
 
     int processCount = 0;
+    bool matchingUnreadableProcess = false;
+    const QString expectedImageName = QFileInfo(expectedPath).fileName();
     for (const RunningProcessEvidenceRecord &record : snapshot.records) {
         const QString processKey = rules::normalizedPathKey(record.imagePath);
         if (!processKey.isEmpty() && processKey == expectedKey)
             ++processCount;
+        else if (processKey.isEmpty()
+                 && !expectedImageName.isEmpty()
+                 && (record.imageName.trimmed().isEmpty()
+                     || record.imageName.compare(
+                                expectedImageName, Qt::CaseInsensitive) == 0))
+            matchingUnreadableProcess = true;
     }
     if (processCount > 0) {
         return {
@@ -510,19 +518,22 @@ RunningProcessMatch matchRunningProcessEvidence(
         };
     }
 
-    switch (snapshot.availability) {
-    case InstallationEvidenceAvailability::Complete:
-        return {EvidenceStatus::NotFound,
-                QStringLiteral("当前未检测到匹配进程；进程未运行不代表应用未安装")};
-    case InstallationEvidenceAvailability::Partial:
-        return {EvidenceStatus::Incomplete,
-                QStringLiteral("运行进程仅部分可枚举，未观察到匹配进程，不能作否定判断")};
-    case InstallationEvidenceAvailability::Unavailable:
+    if (snapshot.availability == InstallationEvidenceAvailability::Unavailable) {
         return {EvidenceStatus::Unavailable,
                 QStringLiteral("运行进程证据当前不可用，未作否定判断")};
     }
-    return {EvidenceStatus::Unavailable,
-            QStringLiteral("运行进程证据状态未知")};
+    if (matchingUnreadableProcess) {
+        return {EvidenceStatus::Incomplete,
+                QStringLiteral("检测到同名进程，但无法读取其可执行路径，不能确认应用未运行")};
+    }
+    const bool enumerationComplete = snapshot.enumerationComplete
+            || snapshot.availability == InstallationEvidenceAvailability::Complete;
+    if (!enumerationComplete) {
+        return {EvidenceStatus::Incomplete,
+                QStringLiteral("运行进程枚举未完整结束，未观察到匹配进程，不能作否定判断")};
+    }
+    return {EvidenceStatus::NotFound,
+            QStringLiteral("当前未检测到匹配进程；进程未运行不代表应用未安装")};
 }
 
 InstallationPathMatch matchInstallPathEvidence(

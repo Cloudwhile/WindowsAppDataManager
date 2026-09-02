@@ -142,12 +142,12 @@ void collectRunningProcessEvidence(InstallationEvidenceSnapshot &snapshot)
         snapshot.runningProcesses.availability =
                 InstallationEvidenceAvailability::Partial;
     }
+    snapshot.runningProcesses.enumerationComplete =
+            processes.enumerationComplete;
 
     snapshot.runningProcesses.records.reserve(processes.processes.size());
     for (const platform::windows::RunningProcessInfo &process :
          processes.processes) {
-        if (process.imagePath.isEmpty())
-            continue;
         snapshot.runningProcesses.records.append({
             process.processId,
             process.imageName,

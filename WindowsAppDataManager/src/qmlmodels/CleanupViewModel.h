@@ -15,6 +15,8 @@ class CleanupViewModel : public QObject {
     QML_UNCREATABLE("由 Backend 提供")
     Q_PROPERTY(wam::qmlmodels::CleanupPlanModel *items READ items CONSTANT)
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
+    Q_PROPERTY(bool cancelling READ cancelling NOTIFY cancellingChanged)
+    Q_PROPERTY(bool resultVisible READ resultVisible NOTIFY resultVisibleChanged)
     Q_PROPERTY(bool hasScan READ hasScan NOTIFY planChanged)
     Q_PROPERTY(bool hasPlan READ hasPlan NOTIFY planChanged)
     Q_PROPERTY(bool canExecute READ canExecute NOTIFY planChanged)
@@ -29,6 +31,8 @@ public:
 
     [[nodiscard]] CleanupPlanModel *items();
     [[nodiscard]] bool running() const;
+    [[nodiscard]] bool cancelling() const;
+    [[nodiscard]] bool resultVisible() const;
     [[nodiscard]] bool hasScan() const;
     [[nodiscard]] bool hasPlan() const;
     [[nodiscard]] bool canExecute() const;
@@ -46,6 +50,8 @@ public:
 
 signals:
     void runningChanged();
+    void cancellingChanged();
+    void resultVisibleChanged();
     void planChanged();
     void statusChanged();
     void errorChanged();
@@ -54,6 +60,8 @@ signals:
 
 private:
     void setRunning(bool running);
+    void setCancelling(bool cancelling);
+    void setResultVisible(bool visible);
     void setStatusText(QString status);
     void clearError();
     void refreshHistory();
@@ -68,6 +76,8 @@ private:
     QString m_lastCleanupText = QStringLiteral("尚无清理记录");
     QString m_lastReleasedSizeText = QStringLiteral("0 B");
     bool m_running = false;
+    bool m_cancelling = false;
+    bool m_resultVisible = false;
     bool m_hasScan = false;
 };
 

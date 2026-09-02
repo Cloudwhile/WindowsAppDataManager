@@ -84,12 +84,20 @@ struct InstallationEvidenceSourceSnapshot {
     QStringList issues;
 };
 
+struct RunningProcessEvidenceSnapshot {
+    InstallationEvidenceAvailability availability =
+            InstallationEvidenceAvailability::Unavailable;
+    bool enumerationComplete = false;
+    QVector<RunningProcessEvidenceRecord> records;
+    QStringList issues;
+};
+
 struct InstallationEvidenceSnapshot {
     InstallationEvidenceSourceSnapshot<RegistryInstallationRecord> registry;
     InstallationEvidenceSourceSnapshot<AppxInstallationRecord> appx;
     InstallationEvidenceSourceSnapshot<InstallationPathEvidenceRecord> installPaths;
     InstallationEvidenceSourceSnapshot<ExecutableEvidenceRecord> executable;
-    InstallationEvidenceSourceSnapshot<RunningProcessEvidenceRecord> runningProcesses;
+    RunningProcessEvidenceSnapshot runningProcesses;
 };
 
 } // namespace wam

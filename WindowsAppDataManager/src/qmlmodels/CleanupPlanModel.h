@@ -14,6 +14,13 @@ class CleanupPlanModel : public QAbstractListModel {
     QML_UNCREATABLE("由 CleanupViewModel 提供")
     Q_PROPERTY(int count READ count NOTIFY summaryChanged)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY summaryChanged)
+    Q_PROPERTY(int selectableCount READ selectableCount NOTIFY summaryChanged)
+    Q_PROPERTY(int processedCount READ processedCount NOTIFY summaryChanged)
+    Q_PROPERTY(int successCount READ successCount NOTIFY summaryChanged)
+    Q_PROPERTY(int skippedCount READ skippedCount NOTIFY summaryChanged)
+    Q_PROPERTY(int failureCount READ failureCount NOTIFY summaryChanged)
+    Q_PROPERTY(bool allSelectableSelected READ allSelectableSelected
+               NOTIFY summaryChanged)
     Q_PROPERTY(QString selectedSizeText READ selectedSizeText NOTIFY summaryChanged)
     Q_PROPERTY(QString estimatedSizeText READ estimatedSizeText NOTIFY summaryChanged)
     Q_PROPERTY(QString releasedSizeText READ releasedSizeText NOTIFY summaryChanged)
@@ -48,6 +55,12 @@ public:
 
     [[nodiscard]] int count() const;
     [[nodiscard]] int selectedCount() const;
+    [[nodiscard]] int selectableCount() const;
+    [[nodiscard]] int processedCount() const;
+    [[nodiscard]] int successCount() const;
+    [[nodiscard]] int skippedCount() const;
+    [[nodiscard]] int failureCount() const;
+    [[nodiscard]] bool allSelectableSelected() const;
     [[nodiscard]] QString selectedSizeText() const;
     [[nodiscard]] QString estimatedSizeText() const;
     [[nodiscard]] QString releasedSizeText() const;
@@ -63,6 +76,7 @@ public:
 
     Q_INVOKABLE [[nodiscard]] QVariantMap get(int index) const;
     Q_INVOKABLE void setSelected(int index, bool selected);
+    Q_INVOKABLE void setAllSelected(bool selected);
 
 signals:
     void summaryChanged();

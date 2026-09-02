@@ -132,6 +132,7 @@ RunningProcessQueryResult queryWindowsProcesses()
         const DWORD status = GetLastError();
         if (status == ERROR_NO_MORE_FILES) {
             result.available = true;
+            result.enumerationComplete = true;
             result.complete = true;
         } else {
             appendIssue(result, 0, {}, status,
@@ -142,6 +143,7 @@ RunningProcessQueryResult queryWindowsProcesses()
     }
 
     result.available = true;
+    result.enumerationComplete = true;
     result.complete = true;
     quint64 inaccessibleProcesses = 0;
     QVector<wchar_t> pathBuffer(
@@ -159,6 +161,7 @@ RunningProcessQueryResult queryWindowsProcesses()
             if (status == ERROR_INVALID_PARAMETER)
                 continue;
             result.complete = false;
+            result.processes.append({processId, imageName, {}});
             if (status == ERROR_ACCESS_DENIED) {
                 ++inaccessibleProcesses;
             } else {
@@ -174,6 +177,7 @@ RunningProcessQueryResult queryWindowsProcesses()
             if (status == ERROR_INVALID_PARAMETER)
                 continue;
             result.complete = false;
+            result.processes.append({processId, imageName, {}});
             if (status == ERROR_ACCESS_DENIED) {
                 ++inaccessibleProcesses;
             } else {
@@ -188,6 +192,7 @@ RunningProcessQueryResult queryWindowsProcesses()
                 QDir::cleanPath(QDir::fromNativeSeparators(imagePath)));
         if (imagePath.isEmpty()) {
             result.complete = false;
+            result.processes.append({processId, imageName, {}});
             appendIssue(result, processId, imageName, ERROR_INVALID_DATA,
                         QStringLiteral("进程映像路径为空"));
             continue;
@@ -197,6 +202,7 @@ RunningProcessQueryResult queryWindowsProcesses()
 
     const DWORD iterationStatus = GetLastError();
     if (iterationStatus != ERROR_NO_MORE_FILES) {
+        result.enumerationComplete = false;
         result.complete = false;
         appendIssue(result, 0, {}, iterationStatus,
                     QStringLiteral("运行进程快照枚举提前终止：%1")

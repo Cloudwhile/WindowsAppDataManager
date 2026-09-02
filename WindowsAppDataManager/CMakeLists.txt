@@ -392,6 +392,19 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>;QT_PLUGIN_PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins"
     )
+
+    add_executable(wam_cleanup_safety_tests
+        tests/tst_cleanup_safety.cpp
+    )
+    target_link_libraries(wam_cleanup_safety_tests PRIVATE
+        wam_backend
+        Qt::Test
+    )
+    add_test(NAME wam_cleanup_safety_tests COMMAND wam_cleanup_safety_tests)
+    set_tests_properties(wam_cleanup_safety_tests PROPERTIES
+        ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>;QT_PLUGIN_PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>/../plugins"
+    )
 endif()
 
 if(WIN32 AND QT_VERSION_MAJOR EQUAL 6 AND TARGET Qt6::windeployqt)

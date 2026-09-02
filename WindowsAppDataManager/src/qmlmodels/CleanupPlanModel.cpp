@@ -134,6 +134,60 @@ int CleanupPlanModel::selectedCount() const
     }));
 }
 
+int CleanupPlanModel::selectableCount() const
+{
+    return static_cast<int>(std::count_if(
+            m_plan.items.cbegin(), m_plan.items.cend(), [](const auto &item) {
+        return item.state == CleanupItemState::Pending;
+    }));
+}
+
+int CleanupPlanModel::processedCount() const
+{
+    return static_cast<int>(std::count_if(
+            m_plan.items.cbegin(), m_plan.items.cend(), [](const auto &item) {
+        return item.selected
+                && (item.state == CleanupItemState::Done
+                    || item.state == CleanupItemState::Skipped
+                    || item.state == CleanupItemState::Failed);
+    }));
+}
+
+int CleanupPlanModel::successCount() const
+{
+    return static_cast<int>(std::count_if(
+            m_plan.items.cbegin(), m_plan.items.cend(), [](const auto &item) {
+        return item.selected && item.state == CleanupItemState::Done;
+    }));
+}
+
+int CleanupPlanModel::skippedCount() const
+{
+    return static_cast<int>(std::count_if(
+            m_plan.items.cbegin(), m_plan.items.cend(), [](const auto &item) {
+        return item.selected && item.state == CleanupItemState::Skipped;
+    }));
+}
+
+int CleanupPlanModel::failureCount() const
+{
+    return static_cast<int>(std::count_if(
+            m_plan.items.cbegin(), m_plan.items.cend(), [](const auto &item) {
+        return item.selected && item.state == CleanupItemState::Failed;
+    }));
+}
+
+bool CleanupPlanModel::allSelectableSelected() const
+{
+    const int selectable = selectableCount();
+    return selectable > 0
+            && std::all_of(
+                    m_plan.items.cbegin(), m_plan.items.cend(),
+                    [](const auto &item) {
+        return item.state != CleanupItemState::Pending || item.selected;
+    });
+}
+
 QString CleanupPlanModel::selectedSizeText() const
 {
     quint64 size = 0;
@@ -202,6 +256,24 @@ void CleanupPlanModel::setSelected(int index, bool selected)
         return;
     item.selected = selected;
     emit dataChanged(this->index(index), this->index(index), {SelectedRole});
+    emit summaryChanged();
+}
+
+void CleanupPlanModel::setAllSelected(bool selected)
+{
+    bool changed = false;
+    for (CleanupPlanItem &item : m_plan.items) {
+        if (item.state != CleanupItemState::Pending || item.selected == selected)
+            continue;
+        item.selected = selected;
+        changed = true;
+    }
+    if (!changed)
+        return;
+    if (!m_plan.items.isEmpty()) {
+        emit dataChanged(index(0), index(m_plan.items.size() - 1),
+                         {SelectedRole});
+    }
     emit summaryChanged();
 }
 

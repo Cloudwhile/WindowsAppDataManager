@@ -122,13 +122,23 @@ bool canOpenForDelete(const QString &path, DWORD &status)
     return true;
 }
 
-DeletionAccessResult probeWindowsPath(const QString &root)
+DeletionAccessResult probeWindowsPath(
+        const QString &root,
+        const std::atomic_bool &cancelRequested)
 {
     DeletionAccessResult result;
     result.supported = true;
+    if (cancelRequested.load(std::memory_order_relaxed)) {
+        result.cancelled = true;
+        return result;
+    }
 
     const StablePathIdentityResult rootIdentity =
             StablePathIdentityReader::read(root);
+    if (cancelRequested.load(std::memory_order_relaxed)) {
+        result.cancelled = true;
+        return result;
+    }
     if (rootIdentity.state != StablePathState::Present
             || !rootIdentity.identity.valid || !rootIdentity.identity.directory) {
         result.path = QDir::toNativeSeparators(root);
@@ -164,6 +174,10 @@ DeletionAccessResult probeWindowsPath(const QString &root)
     }
 
     while (iterator != end) {
+        if (cancelRequested.load(std::memory_order_relaxed)) {
+            result.cancelled = true;
+            return result;
+        }
         const std::filesystem::path path = iterator->path();
         const QString itemPath = pathToQString(path);
         if (!canOpenForDelete(itemPath, status)) {
@@ -194,13 +208,16 @@ DeletionAccessResult probeWindowsPath(const QString &root)
 
 } // namespace
 
-DeletionAccessResult DeletionAccessProbe::probe(const QString &path) noexcept
+DeletionAccessResult DeletionAccessProbe::probe(
+        const QString &path,
+        const std::atomic_bool &cancelRequested) noexcept
 {
     try {
 #ifdef Q_OS_WIN
-        return probeWindowsPath(path);
+        return probeWindowsPath(path, cancelRequested);
 #else
         DeletionAccessResult result;
+        result.cancelled = cancelRequested.load(std::memory_order_relaxed);
         result.technicalDetail = QStringLiteral("当前平台不支持删除访问探测");
         return result;
 #endif
