@@ -57,7 +57,6 @@ UninstallDisplayIcon={app}\{#WamExeName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [CustomMessages]
 english.DesktopIcon=Create a &desktop shortcut
