@@ -165,6 +165,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             components/AppCommandBar.qml
             components/AppSidebar.qml
             components/AppStatusBar.qml
+            components/AutoScrollText.qml
             components/EmptyState.qml
             components/InlineNotice.qml
             components/ScanProgressStrip.qml

@@ -51,17 +51,35 @@ ApplicationWindow {
     readonly property int sidebarWidth: width < 1120 ? 208 : 232
     property real detailPanelExtent: showDetails ? detailPanelWidth : 0
     property bool detailPaneOpen: true
+    readonly property bool showingCleanupStatus:
+        cleanupController.running || currentPage === cleanupPageIndex
 
     onCurrentPageChanged: pageFade.restart()
-    readonly property color scanStatusColor: cleanupController.running
-                                                      ? Theme.accentText
-                                                      : scanning ? Theme.accentText
-                                                      : scanController.errorMessage.length > 0 ? Theme.redText
-                                                      : scanController.partialResult ? Theme.amberText
-                                                      : scanController.progress === 100 ? Theme.greenText
-                                                                                       : Theme.textMuted
-    readonly property url scanStatusIcon: cleanupController.running
-                                           ? Qt.resolvedUrl("resources/Icons/TablerTrashFilled.svg")
+    readonly property color scanStatusColor: {
+        if (showingCleanupStatus) {
+            if (cleanupController.errorMessage.length > 0)
+                return Theme.redText
+            if (cleanupController.items.failureCount > 0)
+                return Theme.amberText
+            if (cleanupController.running)
+                return Theme.accentText
+            return cleanupController.hasPlan ? Theme.greenText : Theme.textMuted
+        }
+        if (scanning)
+            return Theme.accentText
+        if (scanController.errorMessage.length > 0)
+            return Theme.redText
+        if (scanController.partialResult)
+            return Theme.amberText
+        return scanController.progress === 100 ? Theme.greenText : Theme.textMuted
+    }
+    readonly property url scanStatusIcon: showingCleanupStatus
+                                           ? cleanupController.errorMessage.length > 0
+                                             || cleanupController.items.failureCount > 0
+                                             ? Qt.resolvedUrl("resources/Icons/TablerExclamationMark.svg")
+                                             : cleanupController.resultVisible
+                                               ? Qt.resolvedUrl("resources/Icons/TablerCheck.svg")
+                                               : Qt.resolvedUrl("resources/Icons/TablerTrashFilled.svg")
                                            : scanning
                                            ? Qt.resolvedUrl("resources/Icons/TablerActivityHeartbeat.svg")
                                            : scanController.errorMessage.length > 0
@@ -134,9 +152,13 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         statusIcon: window.scanStatusIcon
         statusColor: window.scanStatusColor
-        statusText: window.cleanupController.running
+        statusText: window.showingCleanupStatus
                     ? window.cleanupController.statusText
                     : window.scanController.statusText
+        statusRunning: window.showingCleanupStatus
+                       ? window.cleanupController.running : window.scanning
+        cleanupContext: window.showingCleanupStatus
+        statusLabel: window.showingCleanupStatus ? "清理状态" : "扫描状态"
         totalSizeText: AppStore.applications.totalSizeText
         scanning: window.scanning
         scanProgress: window.scanProgress

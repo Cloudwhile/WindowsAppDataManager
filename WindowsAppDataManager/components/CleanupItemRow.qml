@@ -87,20 +87,15 @@ Item {
                 }
             }
 
-            Text {
-                id: statusText
-
+            AutoScrollText {
                 Layout.fillWidth: true
+                Layout.preferredHeight: 15
                 text: row.statusMessage.length > 0 ? row.statusMessage : row.impact
                 color: row.statusMessage.length > 0
                        ? row.stateColor : Theme.textSecondary
                 font.pixelSize: 10
-                elide: Text.ElideRight
-
-                HoverHandler { id: statusHover }
-                ToolTip.visible: statusHover.hovered && statusText.truncated
-                ToolTip.text: statusText.text
-                ToolTip.delay: 450
+                running: row.state === 1 || row.state === 2 || row.state === 3
+                playOnce: row.state === 6
             }
 
             Text {

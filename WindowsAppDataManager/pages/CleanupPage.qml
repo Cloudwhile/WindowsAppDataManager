@@ -42,12 +42,15 @@ Item {
                     font.weight: Font.DemiBold
                 }
 
-                Text {
+                AutoScrollText {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: 18
                     text: page.cleanupController.statusText
                     color: Theme.textSecondary
                     font.pixelSize: 12
-                    elide: Text.ElideRight
+                    running: page.cleanupController.running
+                    playOnce: true
+                    preservePositionOnUpdate: true
                 }
             }
 
@@ -66,7 +69,8 @@ Item {
                             : Qt.resolvedUrl("../resources/Icons/TablerTrashFilled.svg")
                 tooltip: page.cleanupController.running ? "停止清理" : "执行所选清理"
                 prominent: true
-                enabled: page.cleanupController.running
+                enabled: (page.cleanupController.running
+                          && !page.cleanupController.cancelling)
                          || (!page.scanning && page.cleanupController.canExecute)
                 onClicked: {
                     if (page.cleanupController.running)
@@ -112,8 +116,15 @@ Item {
                     spacing: 2
 
                     Text {
-                        text: page.plan.selectedCount + " 项已选择 · "
-                              + page.plan.selectedSizeText
+                        text: page.cleanupController.resultVisible
+                              ? page.plan.successCount + " 项完成 · "
+                                + page.plan.skippedCount + " 项跳过 · "
+                                + page.plan.failureCount + " 项未处理"
+                              : page.cleanupController.running
+                                ? page.plan.processedCount + " / "
+                                  + page.plan.selectedCount + " 项已处理"
+                                : page.plan.selectedCount + " 项已选择 · "
+                                  + page.plan.selectedSizeText
                         color: Theme.textPrimary
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
@@ -121,7 +132,9 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: page.plan.excludedCount > 0
+                        text: page.cleanupController.resultVisible
+                              ? "清理结果已保留，可刷新生成最新计划"
+                              : page.plan.excludedCount > 0
                               ? page.plan.excludedCount + " 项不符合本次清理条件，未加入计划"
                               : "当前计划中的内容均可重新生成"
                         color: page.plan.excludedCount > 0
@@ -137,6 +150,7 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignRight
                         text: page.cleanupController.running
+                              || page.cleanupController.resultVisible
                               ? "本次已移入回收站"
                               : "最近移入回收站 " + page.cleanupController.lastCleanupText
                         color: Theme.textMuted
@@ -146,6 +160,7 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignRight
                         text: page.cleanupController.running
+                              || page.cleanupController.resultVisible
                               ? page.plan.releasedSizeText
                               : page.cleanupController.lastReleasedSizeText
                         color: Theme.greenText
@@ -181,6 +196,20 @@ Item {
                         color: Theme.textSecondary
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
+                    }
+
+                    IconButton {
+                        visible: page.plan.selectableCount > 0
+                        iconSource: page.plan.allSelectableSelected
+                                    ? Qt.resolvedUrl("../resources/Icons/TablerX.svg")
+                                    : Qt.resolvedUrl("../resources/Icons/TablerCheck.svg")
+                        tooltip: page.plan.allSelectableSelected
+                                 ? "清空选择" : "选择全部安全项"
+                        prominent: page.plan.allSelectableSelected
+                        enabled: !page.scanning
+                                 && !page.cleanupController.running
+                        onClicked: page.plan.setAllSelected(
+                                       !page.plan.allSelectableSelected)
                     }
 
                     Text {
