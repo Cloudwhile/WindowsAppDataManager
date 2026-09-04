@@ -196,6 +196,31 @@ jobs:
             -Destination $packageDir `
             -Recurse
 
+          $thirdPartyLicenseFile = Join-Path $packageDir "THIRD_PARTY_LICENSES.txt"
+          $licenseInputs = @(
+            Get-Item -LiteralPath (Join-Path $packageDir "THIRD_PARTY_NOTICES.txt")
+          ) + @(
+            Get-ChildItem -LiteralPath (Join-Path $packageDir "licenses") `
+              -File -Recurse | Where-Object {
+                $_.Extension -ceq ".txt" -or
+                  $_.Name -ceq "LICENSES.manifest"
+              } | Sort-Object FullName
+          )
+          $licenseBuilder = [System.Text.StringBuilder]::new()
+          foreach ($licenseInput in $licenseInputs) {
+            $relativeLicensePath = $licenseInput.FullName.Substring(
+              $packageDir.Length + 1)
+            [void]$licenseBuilder.AppendLine(
+              "===== $relativeLicensePath =====")
+            [void]$licenseBuilder.AppendLine(
+              [System.IO.File]::ReadAllText($licenseInput.FullName))
+            [void]$licenseBuilder.AppendLine()
+          }
+          [System.IO.File]::WriteAllText(
+            $thirdPartyLicenseFile,
+            $licenseBuilder.ToString(),
+            [System.Text.UTF8Encoding]::new($false))
+
           $deployTool = Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe"
           if (-not (Test-Path -LiteralPath $deployTool -PathType Leaf)) {
             throw "未找到 windeployqt：$deployTool"
@@ -288,6 +313,7 @@ jobs:
             "qml\QtQuick\qtquick2plugin.dll",
             "qml\QtQuick\Controls\Basic\qtquickcontrols2basicstyleplugin.dll",
             "THIRD_PARTY_NOTICES.txt",
+            "THIRD_PARTY_LICENSES.txt",
             "QT_SOURCE_OFFER.txt",
             "licenses\GPL-3.0-only.txt",
             "licenses\LGPL-3.0-only.txt",
@@ -488,6 +514,10 @@ jobs:
             "/DWamVersion=$env:WAM_RELEASE_VERSION" `
             "/DWamNumericVersion=$env:WAM_NUMERIC_VERSION" `
             "/DWamSourceDir=$packageDir" `
+            "/DWamSetupIconFile=$env:GITHUB_WORKSPACE\WindowsAppDataManager\resources\AppIcons\Installer.ico" `
+            "/DWamWizardImageFile=$env:GITHUB_WORKSPACE\WindowsAppDataManager\resources\AppIcons\InstallerWithDiskWizard.bmp" `
+            "/DWamUninstallIconFile=$env:GITHUB_WORKSPACE\WindowsAppDataManager\resources\AppIcons\Unstaller.ico" `
+            "/DWamThirdPartyLicenseFile=$packageDir\THIRD_PARTY_LICENSES.txt" `
             "/DWamOutputDir=$distDir" `
             $installerScript
           if ($LASTEXITCODE -ne 0) {

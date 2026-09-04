@@ -1,0 +1,37 @@
+{
+  "$schema": "../schema.json",
+  "id": "dbeaver",
+  "version": "1",
+  "name": "DBeaver",
+  "publisher": "DBeaver Corp",
+  "applicationCategory": "开发工具",
+  "executablePath": "%ProgramFiles%/DBeaver/dbeaver.exe",
+  "installPath": "%ProgramFiles%/DBeaver",
+  "identifiers": {
+    "registryDisplayNames": ["DBeaver"],
+    "executableProductNames": ["DBeaver"],
+    "executableOriginalFilenames": ["dbeaver.exe"],
+    "runningProcessNames": ["dbeaver.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "DBeaverData", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "drivers",
+      "path": "drivers",
+      "category": "downloaded-resource",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "数据库驱动会在连接数据库时重新下载。"
+    },
+    {
+      "id": "workspace",
+      "path": "workspace6",
+      "category": "workspace",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含连接配置、SQL 历史和工作区状态，默认禁止处理。"
+    }
+  ]
+}

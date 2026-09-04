@@ -115,6 +115,92 @@ struct CandidateAccumulator {
     core::MetadataFingerprint fingerprint;
 };
 
+bool hasAttributionAssessment(const ApplicationInfo &application)
+{
+    return application.attribution.confidence > 0
+            || !application.attribution.evidence.isEmpty()
+            || application.attribution.state != AttributionState::Unknown;
+}
+
+bool hasInstallationAssessment(const ApplicationInfo &application)
+{
+    return application.installation.confidence > 0
+            || !application.installation.evidence.isEmpty()
+            || application.installation.state != InstallationState::Unknown;
+}
+
+int attributionConfidence(const ApplicationInfo &application)
+{
+    return hasAttributionAssessment(application)
+            ? application.attribution.confidence : application.confidence;
+}
+
+int attributionStateRank(AttributionState state)
+{
+    switch (state) {
+    case AttributionState::Verified: return 3;
+    case AttributionState::StrongInferred: return 2;
+    case AttributionState::Suggested: return 1;
+    case AttributionState::Unknown: return 0;
+    }
+    return 0;
+}
+
+int installationStateRank(InstallationState state)
+{
+    switch (state) {
+    case InstallationState::Installed: return 2;
+    case InstallationState::NotObserved: return 1;
+    case InstallationState::Unknown: return 0;
+    }
+    return 0;
+}
+
+void mergeEvidence(QVector<EvidenceInfo> &target,
+                   const QVector<EvidenceInfo> &incoming)
+{
+    for (const EvidenceInfo &evidence : incoming) {
+        const bool alreadyPresent = std::any_of(
+                target.cbegin(), target.cend(), [&evidence](const EvidenceInfo &existing) {
+            return existing.source == evidence.source
+                    && existing.status == evidence.status
+                    && existing.detail == evidence.detail;
+        });
+        if (!alreadyPresent)
+            target.append(evidence);
+    }
+}
+
+void mergeAssessments(ApplicationInfo &application,
+                      const ApplicationInfo &incoming)
+{
+    if (hasAttributionAssessment(incoming)) {
+        if (!hasAttributionAssessment(application)
+                || attributionStateRank(incoming.attribution.state)
+                        > attributionStateRank(application.attribution.state)) {
+            application.attribution.state = incoming.attribution.state;
+        }
+        application.attribution.confidence = std::max(
+                application.attribution.confidence,
+                incoming.attribution.confidence);
+        mergeEvidence(application.attribution.evidence,
+                      incoming.attribution.evidence);
+    }
+
+    if (hasInstallationAssessment(incoming)) {
+        if (!hasInstallationAssessment(application)
+                || installationStateRank(incoming.installation.state)
+                        > installationStateRank(application.installation.state)) {
+            application.installation.state = incoming.installation.state;
+        }
+        application.installation.confidence = std::max(
+                application.installation.confidence,
+                incoming.installation.confidence);
+        mergeEvidence(application.installation.evidence,
+                      incoming.installation.evidence);
+    }
+}
+
 class ScanProgressPublisher final {
 public:
     ScanProgressPublisher(
@@ -185,7 +271,8 @@ QVector<CandidateAccumulator> cleanupCandidateAccumulators(
         const core::ScanTarget &target)
 {
     QVector<CandidateAccumulator> result;
-    if (!target.ruleSource.startsWith(QStringLiteral("内置规则 / ")))
+    if (!target.ruleSource.startsWith(QStringLiteral("内置规则 / "))
+            || target.locationRole == RuleLocationRole::VendorNamespace)
         return result;
 
     const QString normalizedRoot = QDir::cleanPath(
@@ -196,34 +283,50 @@ QVector<CandidateAccumulator> cleanupCandidateAccumulators(
             continue;
         }
 
-        const QString entryPath = normalizedRelativePath(entry.path);
-        if (entryPath.isEmpty())
+        // Glob 只用于分类，不能被展开成一个猜测性的清理根目录。
+        // 清理计划必须继续基于稳定、固定的文件系统身份生成。
+        const QStringList entryPaths = entry.paths.isEmpty()
+                ? QStringList {entry.path} : entry.paths;
+        if (std::any_of(entryPaths.cbegin(), entryPaths.cend(),
+                        [](const QString &path) {
+            return path.contains(QLatin1Char('*'));
+        })) {
             continue;
-        const QString candidatePath = QDir::cleanPath(
-                QDir(normalizedRoot).filePath(entry.path));
-        const QString normalizedCandidate = QDir::fromNativeSeparators(candidatePath);
+        }
+
         const QString rootPrefix = QDir::fromNativeSeparators(normalizedRoot)
                 + QLatin1Char('/');
-        if (!normalizedCandidate.startsWith(rootPrefix, Qt::CaseInsensitive))
-            continue;
+        for (const QString &declaredPath : entryPaths) {
+            const QString entryPath = normalizedRelativePath(declaredPath);
+            if (entryPath.isEmpty())
+                continue;
+            const QString candidatePath = QDir::cleanPath(
+                    QDir(normalizedRoot).filePath(declaredPath));
+            const QString normalizedCandidate = QDir::fromNativeSeparators(candidatePath);
+            if (!normalizedCandidate.startsWith(rootPrefix, Qt::CaseInsensitive))
+                continue;
 
-        CleanupCandidateInfo candidate;
-        candidate.id = cleanupCandidateId(target.application.id, candidatePath);
-        candidate.applicationId = target.application.id;
-        candidate.applicationName = target.application.name;
-        candidate.applicationRoot = QDir::toNativeSeparators(normalizedRoot);
-        candidate.executablePath = target.application.executablePath;
-        candidate.path = QDir::toNativeSeparators(candidatePath);
-        candidate.ruleEntryId = entry.id;
-        candidate.ruleSource = target.ruleSource;
-        candidate.category = entry.category;
-        candidate.risk = entry.risk;
-        candidate.rebuildable = entry.rebuildable;
-        candidate.impact = entry.impact;
-        candidate.verifiedRule = true;
-        candidate.exclusiveLocation = target.locationOwnership
-                == RuleLocationOwnership::Exclusive;
-        result.append({std::move(candidate), entryPath, {}});
+            CleanupCandidateInfo candidate;
+            candidate.id = cleanupCandidateId(target.application.id, candidatePath);
+            candidate.applicationId = target.application.id;
+            candidate.applicationName = target.application.name;
+            candidate.applicationRoot = QDir::toNativeSeparators(normalizedRoot);
+            candidate.executablePath = target.application.executablePath;
+            candidate.runningProcessNames = target.application.runningProcessNames;
+            candidate.path = QDir::toNativeSeparators(candidatePath);
+            candidate.ruleEntryId = entry.id;
+            candidate.ruleSource = target.ruleSource;
+            candidate.category = entry.category;
+            candidate.risk = entry.risk;
+            candidate.rebuildable = entry.rebuildable;
+            candidate.impact = entry.impact;
+            candidate.verifiedRule = true;
+            candidate.exclusiveLocation = target.locationOwnership
+                    == RuleLocationOwnership::Exclusive;
+            candidate.ruleOrigin = target.ruleOrigin;
+            candidate.ruleTrustLevel = target.ruleTrustLevel;
+            result.append({std::move(candidate), entryPath, {}});
+        }
     }
     return result;
 }
@@ -257,6 +360,7 @@ void mergeApplication(ApplicationInfo &application, ApplicationInfo incoming)
     application.confidence = std::max(application.confidence, incoming.confidence);
     if (incoming.installState == InstallState::Installed)
         application.installState = InstallState::Installed;
+    mergeAssessments(application, incoming);
 
     if (!incoming.location.isEmpty() && !application.location.contains(incoming.location)) {
         if (!application.location.isEmpty())
@@ -394,7 +498,7 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
     QHash<QString, int> groupIndexes;
     QVector<CandidateAccumulator> candidateAccumulators =
             cleanupCandidateAccumulators(target);
-    const bool lowConfidence = application.confidence < 50;
+    const bool lowConfidence = attributionConfidence(application) < 50;
     const bool hasCleanupCandidates = !candidateAccumulators.isEmpty();
 
     const auto visitor = [&](const std::filesystem::path &relativePath,
@@ -499,7 +603,7 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
     }
 
     for (const DataGroupInfo &group : application.dataGroups) {
-        if (application.confidence >= 50
+        if (attributionConfidence(application) >= 50
                 && group.rebuildable == RebuildableState::Yes
                 && (group.risk == RiskLevel::Safe || group.risk == RiskLevel::Low)) {
             application.reclaimableSize += group.size;
@@ -513,7 +617,7 @@ ApplicationInfo scanTarget(const core::ScanTarget &target,
     std::sort(application.dataGroups.begin(), application.dataGroups.end(),
               [](const auto &left, const auto &right) { return left.size > right.size; });
     application.risk = core::applicationRisk(application);
-    if (application.confidence < 50) {
+    if (attributionConfidence(application) < 50) {
         application.summary = QStringLiteral(
                 "缺少足够的应用归属证据，Unknown 数据不会自动进入清理计划。");
     } else if (application.protectedSize > 0 || application.unknownSize > 0) {

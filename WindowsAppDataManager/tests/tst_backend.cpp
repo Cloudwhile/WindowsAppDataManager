@@ -1,7 +1,11 @@
 #include "src/core/classifier/DataClassifier.h"
 #include "src/core/classifier/RiskAssessment.h"
 #include "src/core/resolver/AppResolver.h"
+#include "src/core/resolver/AttributionScorer.h"
+#include "src/core/resolver/CandidateGenerator.h"
+#include "src/core/resolver/InstallationResolver.h"
 #include "src/core/rules/RuleCatalog.h"
+#include "src/core/rules/GlobMatcher.h"
 #include "src/core/rules/RuleLoader.h"
 #include "src/core/scanner/DirectoryScanner.h"
 #include "src/core/scanner/MetadataFingerprint.h"
@@ -90,14 +94,20 @@ private slots:
     void safeRulesRequireExactPathEvidence();
     void sensitiveRulesTakePriority();
     void ruleLoaderAcceptsValidDocument();
+    void ruleLoaderTracksRuleOriginAndTrust();
     void ruleLoaderAcceptsInstallationIdentifiers();
     void ruleLoaderRejectsInvalidDocuments();
+    void ruleLoaderRejectsDuplicatePathAlternatives();
     void ruleLoaderRejectsInvalidInstallationIdentifiers();
     void ruleCatalogRejectsDuplicateApplicationIds();
     void ruleCatalogRejectsAmbiguousInstallationIdentifiers();
-    void builtInCatalogContainsMvpApplications();
+    void builtInCatalogDiscoversAllRuleDocuments();
     void applicationRulesUseBoundaryAndLongestMatch();
+    void globRulesMatchControlledPatterns();
     void applicationRiskPreservesSixLevels();
+    void attributionAndInstallationScorersKeepDomainsIndependent();
+    void installationResolverDistinguishesNotObserved();
+    void installationResolverConflictRemainsUnknown();
     void metadataFingerprintRemainsStable();
     void scannerHandlesUnicodeAndCountsFiles();
     void scannerCanSkipUnusedFingerprint();
@@ -110,6 +120,14 @@ private slots:
     void resolverRejectsMismatchedInstallationEvidence();
     void resolverTreatsUnavailableEvidenceConservatively();
     void resolverDoesNotPromoteUnknownFoldersFromInstallationEvidence();
+    void resolverPreservesUnknownCandidateEvidence();
+    void candidateGeneratorRequiresIndependentInstallAnchor();
+    void candidateGeneratorUsesAppxPackageIdentity();
+    void candidateGeneratorUsesExecutableMetadata();
+    void candidateGeneratorUsesExecutableParentDirectory();
+    void candidateGeneratorUsesRunningProcessEvidenceInRanking();
+    void candidateGeneratorMarksCloseCandidatesAmbiguous();
+    void vendorNamespaceExpandsChildrenWithoutTreatingParentAsApplicationData();
     void resolverPublishesApplicationClassificationRules();
 };
 
@@ -164,6 +182,36 @@ void BackendTest::ruleLoaderAcceptsValidDocument()
              wam::RebuildableState::Yes);
 }
 
+void BackendTest::ruleLoaderTracksRuleOriginAndTrust()
+{
+    const auto builtIn = wam::core::rules::RuleLoader::load(
+            ruleJson(validRuleObject()),
+            QStringLiteral(":/windowsappdatamanager/rules/builtin/sample.json"));
+    QVERIFY(builtIn.rule.has_value());
+    QCOMPARE(builtIn.rule->origin, wam::RuleOrigin::BuiltIn);
+    QCOMPARE(builtIn.rule->trustLevel, wam::RuleTrustLevel::Verified);
+
+    const auto community = wam::core::rules::RuleLoader::load(
+            ruleJson(validRuleObject(QStringLiteral("community-app"))),
+            QStringLiteral("community/sample.json"));
+    QVERIFY(community.rule.has_value());
+    QCOMPARE(community.rule->origin, wam::RuleOrigin::Community);
+    QCOMPARE(community.rule->trustLevel, wam::RuleTrustLevel::Unverified);
+
+    const auto local = wam::core::rules::RuleLoader::load(
+            ruleJson(validRuleObject(QStringLiteral("local-app"))),
+            QStringLiteral("C:/Users/test/AppData/Local/rules/local.json"));
+    QVERIFY(local.rule.has_value());
+    QCOMPARE(local.rule->origin, wam::RuleOrigin::Local);
+    QCOMPARE(local.rule->trustLevel, wam::RuleTrustLevel::Unverified);
+
+    const auto memory = wam::core::rules::RuleLoader::load(
+            ruleJson(validRuleObject(QStringLiteral("memory-app"))), {});
+    QVERIFY(memory.rule.has_value());
+    QCOMPARE(memory.rule->origin, wam::RuleOrigin::Local);
+    QCOMPARE(memory.rule->trustLevel, wam::RuleTrustLevel::Unverified);
+}
+
 void BackendTest::ruleLoaderAcceptsInstallationIdentifiers()
 {
     QJsonObject document = validRuleObject();
@@ -179,6 +227,9 @@ void BackendTest::ruleLoaderAcceptsInstallationIdentifiers()
          }},
         {QStringLiteral("appxPublishers"), QJsonArray {
              QStringLiteral("CN=Sample Publisher")
+         }},
+        {QStringLiteral("runningProcessNames"), QJsonArray {
+             QStringLiteral("Sample.exe"), QStringLiteral("Sample.Helper.EXE")
          }}
     });
 
@@ -195,6 +246,9 @@ void BackendTest::ruleLoaderAcceptsInstallationIdentifiers()
              QStringList({QStringLiteral("Sample.App")}));
     QCOMPARE(result.rule->identifiers.appxPublishers,
              QStringList({QStringLiteral("CN=Sample Publisher")}));
+    QCOMPARE(result.rule->identifiers.runningProcessNames,
+             QStringList({QStringLiteral("Sample.exe"),
+                          QStringLiteral("Sample.Helper.EXE")}));
 }
 
 void BackendTest::ruleLoaderRejectsInvalidDocuments()
@@ -253,6 +307,31 @@ void BackendTest::ruleLoaderRejectsInvalidDocuments()
     QVERIFY(!parentResult.rule.has_value());
     QVERIFY(hasRuleIssue(parentResult.issues, wam::RuleIssueCode::UnsafePath,
                          QStringLiteral("entries[0].path")));
+}
+
+void BackendTest::ruleLoaderRejectsDuplicatePathAlternatives()
+{
+    QJsonObject executableDuplicates = validRuleObject();
+    executableDuplicates.insert(QStringLiteral("executables"), QJsonArray {
+        QStringLiteral("%LOCALAPPDATA%/Sample/app.exe"),
+        QStringLiteral("%LOCALAPPDATA%\\Sample\\APP.EXE")
+    });
+    const auto executableResult = wam::core::rules::RuleLoader::load(
+            ruleJson(executableDuplicates), QStringLiteral("duplicate-executables.json"));
+    QVERIFY(!executableResult.rule.has_value());
+    QVERIFY(hasRuleIssue(executableResult.issues, wam::RuleIssueCode::InvalidValue,
+                         QStringLiteral("executables[1]")));
+
+    QJsonObject installDuplicates = validRuleObject();
+    installDuplicates.insert(QStringLiteral("installPaths"), QJsonArray {
+        QStringLiteral("%LOCALAPPDATA%/Sample"),
+        QStringLiteral("%LOCALAPPDATA%\\SAMPLE")
+    });
+    const auto installResult = wam::core::rules::RuleLoader::load(
+            ruleJson(installDuplicates), QStringLiteral("duplicate-install-paths.json"));
+    QVERIFY(!installResult.rule.has_value());
+    QVERIFY(hasRuleIssue(installResult.issues, wam::RuleIssueCode::InvalidValue,
+                         QStringLiteral("installPaths[1]")));
 }
 
 void BackendTest::ruleLoaderRejectsInvalidInstallationIdentifiers()
@@ -382,17 +461,18 @@ void BackendTest::ruleCatalogRejectsAmbiguousInstallationIdentifiers()
     QVERIFY(distinctCatalog.issues().isEmpty());
 }
 
-void BackendTest::builtInCatalogContainsMvpApplications()
+void BackendTest::builtInCatalogDiscoversAllRuleDocuments()
 {
     const auto &catalog = wam::core::rules::RuleCatalog::builtIn();
     QVERIFY2(catalog.issues().isEmpty(), "内置规则必须全部通过加载校验");
-    QCOMPARE(catalog.applications().size(), 7);
     QVERIFY(catalog.findById(QStringLiteral("google-chrome")));
     QVERIFY(catalog.findById(QStringLiteral("chromium")));
+    QVERIFY(catalog.findById(QStringLiteral("microsoft-edge")));
+    QVERIFY(catalog.findById(QStringLiteral("brave-browser")));
     QVERIFY(catalog.findById(QStringLiteral("discord")));
     QVERIFY(catalog.findById(QStringLiteral("visual-studio-code")));
     QVERIFY(catalog.findById(QStringLiteral("jetbrains")));
-    QVERIFY(catalog.findById(QStringLiteral("windows-temp")));
+    QVERIFY(catalog.findById(QStringLiteral("windows-crash-dumps")));
     QVERIFY(catalog.findById(QStringLiteral("npm-cache")));
 }
 
@@ -442,6 +522,26 @@ void BackendTest::applicationRulesUseBoundaryAndLongestMatch()
     QVERIFY(protectedResult.ruleSource.startsWith(QStringLiteral("启发式")));
 }
 
+void BackendTest::globRulesMatchControlledPatterns()
+{
+    QVERIFY(wam::core::rules::GlobMatcher::validate(
+            QStringLiteral("Profile */Cache/**")));
+    QVERIFY(wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("Profile */Cache/**"),
+            QStringLiteral("Profile 2/Cache/data.bin")));
+    QVERIFY(wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("*/caches/**"),
+            QStringLiteral("IntelliJIdea2026.1/caches/index/file")));
+    QVERIFY(!wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("Profile */Cache/**"),
+            QStringLiteral("Profile 2/Config/data.bin")));
+    QString error;
+    QVERIFY(!wam::core::rules::GlobMatcher::validate(
+            QStringLiteral("../Cache/**"), &error));
+    QVERIFY(!wam::core::rules::GlobMatcher::validate(
+            QStringLiteral("Cache/**/../Secrets"), &error));
+}
+
 void BackendTest::applicationRiskPreservesSixLevels()
 {
     wam::ApplicationInfo application;
@@ -458,6 +558,77 @@ void BackendTest::applicationRiskPreservesSixLevels()
 
     application.confidence = 20;
     QCOMPARE(wam::core::applicationRisk(application), wam::RiskLevel::Unknown);
+
+    application.attribution = {
+        wam::AttributionState::Verified,
+        90,
+        {{wam::EvidenceSource::Rule, wam::EvidenceStatus::Matched,
+          QStringLiteral("精确规则匹配")}}
+    };
+    application.dataGroups = {{.risk = wam::RiskLevel::Safe}};
+    QCOMPARE(wam::core::applicationRisk(application), wam::RiskLevel::Safe);
+
+    application.confidence = 99;
+    application.attribution.confidence = 20;
+    QCOMPARE(wam::core::applicationRisk(application), wam::RiskLevel::Unknown);
+}
+
+void BackendTest::attributionAndInstallationScorersKeepDomainsIndependent()
+{
+    const auto exact = wam::core::AttributionScorer::evaluate({
+        .exactRule = true,
+        .conflict = true
+    });
+    QCOMPARE(exact.state, wam::AttributionState::Verified);
+    QCOMPARE(exact.confidence, 100);
+    QCOMPARE(exact.compatibilityConfidence, 49);
+
+    const auto inferred = wam::core::AttributionScorer::evaluate({
+        .exactRule = false,
+        .registryMatched = true,
+        .appxMatched = true
+    });
+    QCOMPARE(inferred.state, wam::AttributionState::Unknown);
+    QCOMPARE(inferred.confidence, 0);
+    QCOMPARE(inferred.compatibilityConfidence, 98);
+
+    const auto notObserved = wam::core::InstallationResolver::evaluate({});
+    QCOMPARE(notObserved.state, wam::InstallationState::Unknown);
+    QCOMPARE(notObserved.confidence, 0);
+
+    const auto installed = wam::core::InstallationResolver::evaluate({2});
+    QCOMPARE(installed.state, wam::InstallationState::Installed);
+    QCOMPARE(installed.confidence, 90);
+}
+
+void BackendTest::installationResolverDistinguishesNotObserved()
+{
+    const auto notObserved = wam::core::InstallationResolver::evaluate({
+        .negativeEvidenceCount = 3,
+        .requiredNegativeEvidenceCount = 3,
+        .evidenceComplete = true
+    });
+    QCOMPARE(notObserved.state, wam::InstallationState::NotObserved);
+    QCOMPARE(notObserved.confidence, 90);
+
+    const auto incomplete = wam::core::InstallationResolver::evaluate({
+        .negativeEvidenceCount = 3,
+        .requiredNegativeEvidenceCount = 3,
+        .evidenceComplete = false
+    });
+    QCOMPARE(incomplete.state, wam::InstallationState::Unknown);
+}
+
+void BackendTest::installationResolverConflictRemainsUnknown()
+{
+    const auto conflicted = wam::core::InstallationResolver::evaluate({
+        .negativeEvidenceCount = 3,
+        .requiredNegativeEvidenceCount = 3,
+        .evidenceComplete = true,
+        .conflict = true
+    });
+    QCOMPARE(conflicted.state, wam::InstallationState::Unknown);
+    QCOMPARE(conflicted.confidence, 0);
 }
 
 void BackendTest::metadataFingerprintRemainsStable()
@@ -718,6 +889,19 @@ void BackendTest::resolverUsesExactInstallationEvidence()
     QVERIFY(sample != targets.cend());
     QCOMPARE(sample->application.installState, wam::InstallState::Installed);
     QCOMPARE(sample->application.confidence, 98);
+    QCOMPARE(sample->application.attribution.state,
+             wam::AttributionState::Verified);
+    QCOMPARE(sample->application.attribution.confidence, 100);
+    QCOMPARE(sample->application.installation.state,
+             wam::InstallationState::Installed);
+    QCOMPARE(sample->application.installation.confidence, 90);
+    QCOMPARE(sample->application.attribution.evidence.size(), 2);
+    QVERIFY(std::none_of(sample->application.installation.evidence.cbegin(),
+                         sample->application.installation.evidence.cend(),
+                         [](const auto &item) {
+        return item.source == wam::EvidenceSource::Folder
+                || item.source == wam::EvidenceSource::Rule;
+    }));
     QCOMPARE(sample->application.installPath, QDir::toNativeSeparators(
                      QStringLiteral("C:/Apps/Sample")));
     QVERIFY(std::any_of(sample->application.evidence.cbegin(),
@@ -769,6 +953,11 @@ void BackendTest::resolverRejectsMismatchedInstallationEvidence()
     QVERIFY(sample != targets.cend());
     QCOMPARE(sample->application.installState, wam::InstallState::Unknown);
     QCOMPARE(sample->application.confidence, 49);
+    QCOMPARE(sample->application.attribution.state,
+             wam::AttributionState::Verified);
+    QCOMPARE(sample->application.attribution.confidence, 100);
+    QCOMPARE(sample->application.installation.state,
+             wam::InstallationState::Unknown);
     QVERIFY(std::any_of(sample->application.evidence.cbegin(),
                         sample->application.evidence.cend(), [](const auto &item) {
         return item.source == wam::EvidenceSource::Registry
@@ -805,6 +994,11 @@ void BackendTest::resolverTreatsUnavailableEvidenceConservatively()
     QVERIFY(sample != targets.cend());
     QCOMPARE(sample->application.installState, wam::InstallState::Unknown);
     QCOMPARE(sample->application.confidence, 72);
+    QCOMPARE(sample->application.attribution.state,
+             wam::AttributionState::Verified);
+    QCOMPARE(sample->application.attribution.confidence, 100);
+    QCOMPARE(sample->application.installation.state,
+             wam::InstallationState::Unknown);
     QVERIFY(std::any_of(sample->application.evidence.cbegin(),
                         sample->application.evidence.cend(), [](const auto &item) {
         return item.source == wam::EvidenceSource::Registry
@@ -830,7 +1024,352 @@ void BackendTest::resolverDoesNotPromoteUnknownFoldersFromInstallationEvidence()
     QCOMPARE(targets.size(), 1);
     QCOMPARE(targets.constFirst().application.installState, wam::InstallState::Unknown);
     QCOMPARE(targets.constFirst().application.confidence, 20);
+    QCOMPARE(targets.constFirst().application.attribution.state,
+             wam::AttributionState::Unknown);
+    QCOMPARE(targets.constFirst().application.attribution.confidence, 20);
+    QCOMPARE(targets.constFirst().application.installation.state,
+             wam::InstallationState::Unknown);
+    QVERIFY(targets.constFirst().application.installation.evidence.isEmpty());
     QCOMPARE(targets.constFirst().application.risk, wam::RiskLevel::Unknown);
+}
+
+void BackendTest::resolverPreservesUnknownCandidateEvidence()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Sample App"));
+    QVERIFY(QDir().mkpath(directory));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        QStringLiteral("C:/Apps/Sample App/sample.exe"),
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Available,
+        QStringLiteral("Sample App"),
+        QStringLiteral("Sample Publisher"),
+        QStringLiteral("Sample App"),
+        QStringLiteral("sample.exe"),
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+
+    const auto targets = wam::core::AppResolver(evidence).discoverTargets(
+            {temporary.path()});
+    QCOMPARE(targets.size(), 1);
+    const auto &application = targets.constFirst().application;
+    QCOMPARE(application.attribution.state, wam::AttributionState::StrongInferred);
+    QCOMPARE(application.installation.state, wam::InstallationState::Installed);
+    QVERIFY(std::any_of(application.attribution.evidence.cbegin(),
+                        application.attribution.evidence.cend(), [](const auto &item) {
+        return item.source == wam::EvidenceSource::Executable
+                && item.status == wam::EvidenceStatus::Matched;
+    }));
+    QVERIFY(std::any_of(application.attribution.evidence.cbegin(),
+                        application.attribution.evidence.cend(), [](const auto &item) {
+        return item.source == wam::EvidenceSource::Folder;
+    }));
+}
+
+void BackendTest::candidateGeneratorRequiresIndependentInstallAnchor()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Sample App"));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.registry.records.append({
+        .displayName = QStringLiteral("Sample App"),
+        .publisher = QStringLiteral("Sample Publisher")
+    });
+    QVERIFY(wam::core::CandidateGenerator::generate(directory, evidence).isEmpty());
+
+    evidence.registry.records[0].displayIcon =
+            QStringLiteral("\"C:/Apps/Sample App/sample.ico\",0");
+    const auto iconCandidates = wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(iconCandidates.size(), 1);
+    QVERIFY(std::any_of(iconCandidates.constFirst().attribution.evidence.cbegin(),
+                        iconCandidates.constFirst().attribution.evidence.cend(),
+                        [](const auto &item) {
+        return item.source == wam::EvidenceSource::InstallPath
+                && item.detail.contains(QStringLiteral("DisplayIcon"));
+    }));
+
+    evidence.registry.records[0].displayIcon.clear();
+    evidence.registry.records[0].uninstallString =
+            QStringLiteral("\"C:/Apps/Sample App/uninstall.exe\" /S");
+    const auto uninstallCandidates = wam::core::CandidateGenerator::generate(
+            directory, evidence);
+    QCOMPARE(uninstallCandidates.size(), 1);
+    QVERIFY(std::any_of(uninstallCandidates.constFirst().attribution.evidence.cbegin(),
+                        uninstallCandidates.constFirst().attribution.evidence.cend(),
+                        [](const auto &item) {
+        return item.source == wam::EvidenceSource::InstallPath
+                && item.detail.contains(QStringLiteral("卸载命令"));
+    }));
+
+    evidence.registry.records[0].uninstallString.clear();
+    evidence.registry.records[0].installPath = QStringLiteral("C:/Apps/Sample App");
+    const auto candidates = wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(candidates.size(), 1);
+    QCOMPARE(candidates.constFirst().attribution.state,
+             wam::AttributionState::StrongInferred);
+    QVERIFY(candidates.constFirst().attribution.evidence.contains({
+        wam::EvidenceSource::Registry, wam::EvidenceStatus::Matched,
+        QStringLiteral("注册表安装项提供候选名称“Sample App”")
+    }));
+    QVERIFY(candidates.constFirst().attribution.evidence.contains({
+        wam::EvidenceSource::InstallPath, wam::EvidenceStatus::Matched,
+        QStringLiteral("注册表 InstallLocation 提供安装目录")
+    }));
+}
+
+void BackendTest::candidateGeneratorUsesAppxPackageIdentity()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Sample App"));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.appx.records.append({
+        .packageName = QStringLiteral("Other.Package"),
+        .publisher = QStringLiteral("CN=Other Publisher"),
+        .packageFamilyName = QStringLiteral("Other.Package_family"),
+        .displayName = QStringLiteral("Sample App")
+    });
+    QVERIFY(wam::core::CandidateGenerator::generate(directory, evidence).isEmpty());
+    evidence.appx.records.clear();
+    evidence.appx.records.append({
+        .displayName = QStringLiteral("Sample App")
+    });
+    QVERIFY(wam::core::CandidateGenerator::generate(directory, evidence).isEmpty());
+    evidence.appx.records.clear();
+    evidence.appx.records.append({
+        .packageFamilyName = QStringLiteral("Sample.App_family")
+    });
+    QVERIFY(!wam::core::CandidateGenerator::generate(directory, evidence).isEmpty());
+    evidence.appx.records.clear();
+    evidence.appx.records.append({
+        .packageName = QStringLiteral("Sample.App"),
+        .publisher = QStringLiteral("CN=Sample Publisher"),
+        .packageFamilyName = QStringLiteral("Sample.App_family"),
+        .displayName = QStringLiteral("Sample App")
+    });
+    const auto candidates = wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(candidates.size(), 1);
+    QCOMPARE(candidates.constFirst().name, QStringLiteral("Sample App"));
+    QVERIFY(candidates.constFirst().attribution.state
+            == wam::AttributionState::StrongInferred
+            || candidates.constFirst().attribution.state
+                    == wam::AttributionState::Suggested);
+    QVERIFY(std::any_of(candidates.constFirst().attribution.evidence.cbegin(),
+                        candidates.constFirst().attribution.evidence.cend(),
+                        [](const auto &item) {
+        return item.source == wam::EvidenceSource::Appx
+                && item.status == wam::EvidenceStatus::Matched;
+    }));
+}
+
+void BackendTest::candidateGeneratorUsesExecutableMetadata()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Sample App"));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        QStringLiteral("C:/Apps/Sample App/sample.exe"),
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Available,
+        QStringLiteral("Sample App"),
+        QStringLiteral("Sample Publisher"),
+        QStringLiteral("Sample App"),
+        QStringLiteral("sample.exe"),
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+
+    const auto candidates = wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(candidates.size(), 1);
+    const auto &candidate = candidates.constFirst();
+    QCOMPARE(candidate.name, QStringLiteral("Sample App"));
+    QCOMPARE(candidate.publisher, QStringLiteral("Sample Publisher"));
+    QCOMPARE(candidate.attribution.state, wam::AttributionState::StrongInferred);
+    QVERIFY(candidate.attribution.confidence >= 75);
+    QVERIFY(std::any_of(candidate.attribution.evidence.cbegin(),
+                        candidate.attribution.evidence.cend(), [](const auto &item) {
+        return item.source == wam::EvidenceSource::Executable
+                && item.status == wam::EvidenceStatus::Matched;
+    }));
+    QCOMPARE(candidate.installation.state, wam::InstallationState::Installed);
+    QVERIFY(std::any_of(candidate.installation.evidence.cbegin(),
+                        candidate.installation.evidence.cend(), [](const auto &item) {
+        return item.source == wam::EvidenceSource::Executable
+                && item.status == wam::EvidenceStatus::Matched;
+    }));
+
+    evidence.executable.records[0].metadataState = wam::VersionMetadataState::Missing;
+    QVERIFY(wam::core::CandidateGenerator::generate(directory, evidence).isEmpty());
+}
+
+void BackendTest::candidateGeneratorUsesExecutableParentDirectory()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Discord"));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.executable.availability = wam::InstallationEvidenceAvailability::Complete;
+    evidence.executable.records.append({
+        QStringLiteral("C:/Apps/Discord/Update.exe"),
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Available,
+        QStringLiteral("Update"),
+        QStringLiteral("Discord Inc."),
+        QStringLiteral("Discord Updater"),
+        QStringLiteral("Update.exe"),
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+
+    const auto candidates = wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(candidates.size(), 1);
+    const auto &candidate = candidates.constFirst();
+    QCOMPARE(candidate.name, QStringLiteral("Discord"));
+    QCOMPARE(candidate.publisher, QStringLiteral("Discord Inc."));
+    QCOMPARE(candidate.attribution.state, wam::AttributionState::StrongInferred);
+    QVERIFY(std::any_of(candidate.attribution.evidence.cbegin(),
+                        candidate.attribution.evidence.cend(), [](const auto &item) {
+        return item.source == wam::EvidenceSource::Folder
+                && item.status == wam::EvidenceStatus::Matched
+                && item.detail.contains(QStringLiteral("父目录"));
+    }));
+
+    evidence.executable.records[0].productName = QStringLiteral("Different Product");
+    evidence.executable.records[0].fileDescription = QStringLiteral("Different Product");
+    const auto explicitMetadataCandidates =
+            wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(explicitMetadataCandidates.size(), 1);
+    QCOMPARE(explicitMetadataCandidates.constFirst().name,
+             QStringLiteral("Different Product"));
+}
+
+void BackendTest::candidateGeneratorUsesRunningProcessEvidenceInRanking()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Sample App"));
+
+    wam::InstallationEvidenceSnapshot withoutProcess;
+    withoutProcess.executable.records.append({
+        QStringLiteral("C:/Apps/Sample App/sample.exe"),
+        wam::ExecutablePathState::Present,
+        wam::VersionMetadataState::Available,
+        QStringLiteral("Unrelated Product"),
+        QStringLiteral("Sample Publisher"),
+        QStringLiteral("Unrelated Product"),
+        QStringLiteral("sample.exe"),
+        wam::AuthenticodeState::Unsigned,
+        {}
+    });
+    const auto baseCandidates =
+            wam::core::CandidateGenerator::generate(directory, withoutProcess);
+    QCOMPARE(baseCandidates.size(), 1);
+
+    wam::InstallationEvidenceSnapshot withProcess = withoutProcess;
+    withProcess.runningProcesses.records.append({
+        .processId = 42,
+        .imageName = QStringLiteral("sample.exe"),
+        .imagePath = QStringLiteral("C:/Apps/Sample App/sample.exe")
+    });
+    const auto rankedCandidates =
+            wam::core::CandidateGenerator::generate(directory, withProcess);
+    QCOMPARE(rankedCandidates.size(), 1);
+    QVERIFY(rankedCandidates.constFirst().score > baseCandidates.constFirst().score);
+    QVERIFY(std::any_of(rankedCandidates.constFirst().installation.evidence.cbegin(),
+                        rankedCandidates.constFirst().installation.evidence.cend(),
+                        [](const auto &item) {
+        return item.source == wam::EvidenceSource::RunningProcess
+                && item.status == wam::EvidenceStatus::Matched;
+    }));
+    QVERIFY(std::any_of(rankedCandidates.constFirst().attribution.evidence.cbegin(),
+                        rankedCandidates.constFirst().attribution.evidence.cend(),
+                        [](const auto &item) {
+        return item.source == wam::EvidenceSource::RunningProcess
+                && item.status == wam::EvidenceStatus::Matched;
+    }));
+}
+
+void BackendTest::candidateGeneratorMarksCloseCandidatesAmbiguous()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString directory = QDir(temporary.path()).filePath(QStringLiteral("Sample App"));
+
+    wam::InstallationEvidenceSnapshot evidence;
+    evidence.registry.records = {
+        {
+            .displayName = QStringLiteral("Sample App"),
+            .publisher = QStringLiteral("Publisher One"),
+            .installPath = QStringLiteral("C:/Apps/Sample App")
+        },
+        {
+            .displayName = QStringLiteral("Sample App"),
+            .publisher = QStringLiteral("Publisher Two"),
+            .installPath = QStringLiteral("D:/Apps/Sample App")
+        }
+    };
+    const auto candidates = wam::core::CandidateGenerator::generate(directory, evidence);
+    QCOMPARE(candidates.size(), 2);
+    QVERIFY(std::all_of(candidates.cbegin(), candidates.cend(), [](const auto &candidate) {
+        return candidate.ambiguous
+                && candidate.attribution.state == wam::AttributionState::Unknown;
+    }));
+}
+
+void BackendTest::vendorNamespaceExpandsChildrenWithoutTreatingParentAsApplicationData()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString local = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    const QString vendor = QDir(local).filePath(QStringLiteral("Vendor"));
+    QVERIFY(QDir().mkpath(QDir(vendor).filePath(QStringLiteral("Product One"))));
+    QVERIFY(QDir().mkpath(QDir(vendor).filePath(QStringLiteral("Product Two"))));
+
+    QJsonObject rule = validRuleObject(QStringLiteral("vendor-namespace"));
+    rule.insert(QStringLiteral("name"), QStringLiteral("Vendor Namespace"));
+    rule.insert(QStringLiteral("publisher"), QStringLiteral("Vendor"));
+    rule.insert(QStringLiteral("locations"), QJsonArray {
+        QJsonObject {
+            {QStringLiteral("scope"), QStringLiteral("local")},
+            {QStringLiteral("path"), QStringLiteral("Vendor")},
+            {QStringLiteral("ownership"), QStringLiteral("shared")},
+            {QStringLiteral("role"), QStringLiteral("vendor-namespace")}
+        }
+    });
+    const auto catalog = wam::core::rules::RuleCatalog::fromJsonDocuments({
+        {QStringLiteral("vendor.json"), ruleJson(rule)}
+    });
+    QVERIFY2(catalog.issues().isEmpty(), "VendorNamespace 规则必须通过校验");
+
+    const auto targets = wam::core::AppResolver(catalog).discoverTargets({local});
+    const auto parent = std::find_if(targets.cbegin(), targets.cend(), [](const auto &target) {
+        return target.application.id == QStringLiteral("vendor-namespace");
+    });
+    QVERIFY(parent != targets.cend());
+    QCOMPARE(parent->application.ownerKind, wam::OwnerKind::Vendor);
+    QCOMPARE(parent->excludedPaths.size(), 2);
+    QVERIFY(std::all_of(parent->excludedPaths.cbegin(), parent->excludedPaths.cend(),
+                        [](const QString &path) {
+        return path.contains(QStringLiteral("Product"), Qt::CaseInsensitive);
+    }));
+
+    const auto children = std::count_if(targets.cbegin(), targets.cend(), [](const auto &target) {
+        return target.application.id != QStringLiteral("vendor-namespace")
+                && target.path.contains(QStringLiteral("Vendor"), Qt::CaseInsensitive);
+    });
+    QCOMPARE(children, 2);
 }
 
 void BackendTest::resolverPublishesApplicationClassificationRules()
@@ -886,6 +1425,8 @@ void BackendTest::resolverPublishesApplicationClassificationRules()
     const auto targets = wam::core::AppResolver(catalog).discoverTargets({local});
     QCOMPARE(targets.size(), 1);
     QCOMPARE(targets.constFirst().application.id, QStringLiteral("discord"));
+    QCOMPARE(targets.constFirst().ruleOrigin, wam::RuleOrigin::Local);
+    QCOMPARE(targets.constFirst().ruleTrustLevel, wam::RuleTrustLevel::Unverified);
 
     const wam::core::DataClassifier classifier;
     const auto cacheClassification = classifier.classify(

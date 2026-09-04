@@ -1,10 +1,26 @@
 #include "RiskAssessment.h"
 
 namespace wam::core {
+namespace {
+
+bool hasAttributionAssessment(const ApplicationInfo &application)
+{
+    return application.attribution.confidence > 0
+            || !application.attribution.evidence.isEmpty()
+            || application.attribution.state != AttributionState::Unknown;
+}
+
+int attributionConfidence(const ApplicationInfo &application)
+{
+    return hasAttributionAssessment(application)
+            ? application.attribution.confidence : application.confidence;
+}
+
+} // namespace
 
 RiskLevel applicationRisk(const ApplicationInfo &application)
 {
-    if (application.confidence < 50)
+    if (attributionConfidence(application) < 50)
         return RiskLevel::Unknown;
 
     bool hasSafe = false;

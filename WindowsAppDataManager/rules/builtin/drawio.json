@@ -1,0 +1,70 @@
+{
+  "$schema": "../schema.json",
+  "id": "drawio",
+  "version": "1",
+  "name": "draw.io",
+  "publisher": "JGraph Ltd",
+  "applicationCategory": "效率工具",
+  "executablePath": "%LOCALAPPDATA%/Programs/draw.io/draw.io.exe",
+  "installPath": "%LOCALAPPDATA%/Programs/draw.io",
+  "identifiers": {
+    "registryDisplayNames": ["draw.io"],
+    "executableProductNames": ["draw.io"],
+    "executableCompanyNames": ["JGraph Ltd"],
+    "executableOriginalFilenames": ["draw.io.exe"],
+    "runningProcessNames": ["draw.io.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "draw.io", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形资源缓存会在 draw.io 再次使用时重新生成。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示界面可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，draw.io 仍会生成新日志。"
+    },
+    {
+      "id": "local-storage",
+      "path": "Local Storage",
+      "category": "user-data",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "可能包含本地草稿和应用状态，默认禁止处理。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含应用配置，默认禁止处理。"
+    }
+  ]
+}

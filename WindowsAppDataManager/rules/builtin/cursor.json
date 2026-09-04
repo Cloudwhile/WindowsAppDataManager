@@ -1,0 +1,94 @@
+{
+  "$schema": "../schema.json",
+  "id": "cursor",
+  "version": "1",
+  "name": "Cursor",
+  "publisher": "Anysphere, Inc.",
+  "applicationCategory": "开发工具",
+  "executablePath": "%LOCALAPPDATA%/Programs/Cursor/Cursor.exe",
+  "installPath": "%LOCALAPPDATA%/Programs/Cursor",
+  "identifiers": {
+    "registryDisplayNames": ["Cursor"],
+    "executableProductNames": ["Cursor"],
+    "executableCompanyNames": ["Anysphere, Inc."],
+    "executableOriginalFilenames": ["Cursor.exe"],
+    "runningProcessNames": ["Cursor.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Cursor", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "编辑器资源缓存会在 Cursor 再次运行时重新生成。"
+    },
+    {
+      "id": "cached-data",
+      "path": "CachedData",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "版本缓存会重新生成，下一次启动可能稍慢。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示界面可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，Cursor 仍会生成新日志。"
+    },
+    {
+      "id": "workspace-storage",
+      "path": "User/workspaceStorage",
+      "category": "workspace",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能丢失工作区状态、扩展状态或未同步的本地信息。"
+    },
+    {
+      "id": "global-storage",
+      "path": "User/globalStorage",
+      "category": "user-data",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "可能包含扩展和编辑器持久状态，默认禁止处理。"
+    },
+    {
+      "id": "settings",
+      "path": "User/settings.json",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含编辑器设置，默认禁止处理。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含应用级配置和加密数据相关状态，默认禁止处理。"
+    }
+  ]
+}

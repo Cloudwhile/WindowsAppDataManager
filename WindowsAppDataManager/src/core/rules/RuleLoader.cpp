@@ -1,4 +1,5 @@
 #include "RuleLoader.h"
+#include "GlobMatcher.h"
 #include "IdentifierNormalization.h"
 #include "RulePathResolver.h"
 
@@ -13,6 +14,7 @@
 #include <QSet>
 #include <QStringList>
 
+#include <algorithm>
 #include <utility>
 
 namespace wam::core::rules {
@@ -25,6 +27,25 @@ void addIssue(QVector<RuleLoadIssue> &issues,
               const QString &message)
 {
     issues.append({code, source, field, message});
+}
+
+RuleOrigin originForSource(const QString &source)
+{
+    if (source.startsWith(QStringLiteral(":/"))
+            || source.startsWith(QStringLiteral("qrc:/"), Qt::CaseInsensitive)) {
+        return RuleOrigin::BuiltIn;
+    }
+
+    const QString normalized = QDir::fromNativeSeparators(source).toCaseFolded();
+    if (normalized.contains(QStringLiteral("community")))
+        return RuleOrigin::Community;
+    return RuleOrigin::Local;
+}
+
+RuleTrustLevel trustLevelForOrigin(RuleOrigin origin)
+{
+    return origin == RuleOrigin::BuiltIn
+            ? RuleTrustLevel::Verified : RuleTrustLevel::Unverified;
 }
 
 void rejectUnknownFields(const QJsonObject &object,
@@ -71,6 +92,34 @@ std::optional<QString> requiredString(const QJsonObject &object,
     return text;
 }
 
+std::optional<QString> requiredPathString(const QJsonObject &object,
+                                          const QString &key,
+                                          const QString &field,
+                                          const QString &source,
+                                          QVector<RuleLoadIssue> &issues)
+{
+    if (!object.contains(key)) {
+        addIssue(issues, RuleIssueCode::MissingField, source, field,
+                 QStringLiteral("缺少必填字段"));
+        return std::nullopt;
+    }
+
+    const QJsonValue value = object.value(key);
+    if (!value.isString()) {
+        addIssue(issues, RuleIssueCode::InvalidType, source, field,
+                 QStringLiteral("字段必须是字符串"));
+        return std::nullopt;
+    }
+
+    const QString text = value.toString();
+    if (text.trimmed().isEmpty()) {
+        addIssue(issues, RuleIssueCode::InvalidValue, source, field,
+                 QStringLiteral("字段不能为空"));
+        return std::nullopt;
+    }
+    return text;
+}
+
 bool hasSafeIdentifier(const QString &identifier)
 {
     static const QRegularExpression pattern(
@@ -79,31 +128,29 @@ bool hasSafeIdentifier(const QString &identifier)
 }
 
 std::optional<QString> normalizedRelativePath(const QString &rawPath,
+                                              bool allowRoot,
                                               const QString &field,
                                               const QString &source,
-                                              QVector<RuleLoadIssue> &issues)
+                                              QVector<RuleLoadIssue> &issues,
+                                              bool allowGlob = false)
 {
-    QString path = rawPath.trimmed();
-    path.replace(QLatin1Char('\\'), QLatin1Char('/'));
-
-    static const QRegularExpression drivePrefix(QStringLiteral("^[A-Za-z]:"));
-    if (path.isEmpty() || QDir::isAbsolutePath(path) || path.startsWith(QLatin1Char('/'))
-            || drivePrefix.match(path).hasMatch()) {
+    QString error;
+    if (!validateRelativeRulePath(rawPath, allowRoot, &error, allowGlob)) {
         addIssue(issues, RuleIssueCode::UnsafePath, source, field,
-                 QStringLiteral("规则路径必须是非空相对路径"));
+                 QStringLiteral("规则相对路径不安全：%1").arg(error));
         return std::nullopt;
     }
 
-    const QStringList segments = path.split(QLatin1Char('/'), Qt::KeepEmptyParts);
-    for (const QString &segment : segments) {
-        if (segment.isEmpty() || segment == QStringLiteral(".")
-                || segment == QStringLiteral("..") || segment.contains(QLatin1Char(':'))) {
-            addIssue(issues, RuleIssueCode::UnsafePath, source, field,
-                     QStringLiteral("规则路径包含空段、父级跳转或非法分隔符"));
-            return std::nullopt;
-        }
-    }
-    return segments.join(QLatin1Char('/'));
+    return QDir::fromNativeSeparators(rawPath);
+}
+
+bool pathPrefixesOverlap(const QString &left, const QString &right)
+{
+    const QString leftKey = left.toCaseFolded();
+    const QString rightKey = right.toCaseFolded();
+    return leftKey == rightKey
+            || leftKey.startsWith(rightKey + QLatin1Char('/'))
+            || rightKey.startsWith(leftKey + QLatin1Char('/'));
 }
 
 std::optional<RuleScope> parseScope(const QString &value)
@@ -126,6 +173,109 @@ std::optional<RuleLocationOwnership> parseLocationOwnership(const QString &value
     if (normalized == QStringLiteral("exclusive"))
         return RuleLocationOwnership::Exclusive;
     return std::nullopt;
+}
+
+std::optional<RuleLocationRole> parseLocationRole(const QString &value)
+{
+    static const QHash<QString, RuleLocationRole> roles {
+        {QStringLiteral("data"), RuleLocationRole::Data},
+        {QStringLiteral("config"), RuleLocationRole::Config},
+        {QStringLiteral("cache"), RuleLocationRole::Cache},
+        {QStringLiteral("shared-data"), RuleLocationRole::SharedData},
+        {QStringLiteral("install-payload"), RuleLocationRole::InstallPayload},
+        {QStringLiteral("vendor-namespace"), RuleLocationRole::VendorNamespace},
+        {QStringLiteral("mixed"), RuleLocationRole::Mixed}
+    };
+    const auto iterator = roles.constFind(value.toCaseFolded());
+    return iterator == roles.cend()
+            ? std::nullopt : std::optional<RuleLocationRole>(*iterator);
+}
+
+bool parsePathAlternatives(const QJsonObject &object,
+                           const QString &singularKey,
+                           const QString &pluralKey,
+                           const QString &field,
+                           const QString &source,
+                           QVector<RuleLoadIssue> &issues,
+                           QStringList &paths)
+{
+    const bool hasSingular = object.contains(singularKey);
+    const bool hasPlural = object.contains(pluralKey);
+    if (!hasSingular && !hasPlural) {
+        addIssue(issues, RuleIssueCode::MissingField, source, field,
+                 QStringLiteral("缺少必填字段"));
+        return false;
+    }
+
+    auto appendPath = [&](const QString &value, const QString &pathField) {
+        if (value.trimmed().isEmpty()) {
+            addIssue(issues, RuleIssueCode::InvalidValue, source, pathField,
+                     QStringLiteral("路径不能为空"));
+            return;
+        }
+        const QString normalized = QDir::fromNativeSeparators(value.trimmed())
+                .toCaseFolded();
+        const bool duplicate = std::any_of(
+                paths.cbegin(), paths.cend(), [&normalized](const QString &existing) {
+            return QDir::fromNativeSeparators(existing.trimmed()).toCaseFolded()
+                    == normalized;
+        });
+        if (duplicate) {
+            addIssue(issues, RuleIssueCode::InvalidValue, source, pathField,
+                     QStringLiteral("路径候选不能重复"));
+            return;
+        }
+        paths.append(value);
+    };
+
+    if (hasSingular) {
+        const QJsonValue value = object.value(singularKey);
+        if (!value.isString()) {
+            addIssue(issues, RuleIssueCode::InvalidType, source, field,
+                     QStringLiteral("字段必须是字符串"));
+        } else {
+            appendPath(value.toString(), field);
+        }
+    }
+    if (hasPlural) {
+        const QString arrayField = QStringLiteral("%1").arg(pluralKey);
+        const QJsonValue value = object.value(pluralKey);
+        if (!value.isArray()) {
+            addIssue(issues, RuleIssueCode::InvalidType, source, arrayField,
+                     QStringLiteral("路径候选必须是字符串数组"));
+        } else {
+            const QJsonArray array = value.toArray();
+            if (array.isEmpty()) {
+                addIssue(issues, RuleIssueCode::InvalidValue, source, arrayField,
+                         QStringLiteral("路径候选不能为空"));
+            }
+            for (qsizetype index = 0; index < array.size(); ++index) {
+                const QString itemField = QStringLiteral("%1[%2]")
+                        .arg(arrayField).arg(index);
+                const QJsonValue item = array.at(index);
+                if (item.isString()) {
+                    appendPath(item.toString(), itemField);
+                    continue;
+                }
+                if (pluralKey == QStringLiteral("executables") && item.isObject()) {
+                    const QJsonObject executable = item.toObject();
+                    rejectUnknownFields(executable, {QStringLiteral("path")},
+                                        itemField, source, issues);
+                    const auto path = requiredPathString(
+                            executable, QStringLiteral("path"),
+                            itemField + QStringLiteral(".path"), source, issues);
+                    if (path)
+                        appendPath(*path, itemField + QStringLiteral(".path"));
+                    continue;
+                }
+                addIssue(issues, RuleIssueCode::InvalidType, source, itemField,
+                         pluralKey == QStringLiteral("executables")
+                                 ? QStringLiteral("可执行路径候选必须是字符串或包含 path 的对象")
+                                 : QStringLiteral("路径候选必须是字符串"));
+            }
+        }
+    }
+    return !paths.isEmpty();
 }
 
 std::optional<DataCategory> parseCategory(const QString &value)
@@ -231,6 +381,28 @@ void parseIdentifierArray(const QJsonObject &identifiersObject,
     }
 }
 
+void validateRunningProcessNames(const QString &source,
+                                 const QStringList &processNames,
+                                 QVector<RuleLoadIssue> &issues)
+{
+    for (qsizetype index = 0; index < processNames.size(); ++index) {
+        const QString &processName = processNames.at(index);
+        QString pathError;
+        const bool singleSegment = !processName.contains(QLatin1Char('/'))
+                && !processName.contains(QLatin1Char('\\'));
+        if (singleSegment
+                && processName.endsWith(QStringLiteral(".exe"),
+                                        Qt::CaseInsensitive)
+                && validateRelativeRulePath(processName, false, &pathError)) {
+            continue;
+        }
+
+        addIssue(issues, RuleIssueCode::InvalidValue, source,
+                 QStringLiteral("identifiers.runningProcessNames[%1]").arg(index),
+                 QStringLiteral("运行进程名必须是安全的 .exe 文件名，不能包含路径"));
+    }
+}
+
 void parseIdentifiers(const QJsonObject &root,
                       const QString &source,
                       RuleIdentifiers &identifiers,
@@ -255,7 +427,8 @@ void parseIdentifiers(const QJsonObject &root,
                          QStringLiteral("executableProductNames"),
                          QStringLiteral("executableCompanyNames"),
                          QStringLiteral("executableOriginalFilenames"),
-                         QStringLiteral("authenticodePublishers")},
+                         QStringLiteral("authenticodePublishers"),
+                         QStringLiteral("runningProcessNames")},
                         QStringLiteral("identifiers"), source, issues);
     if (object.isEmpty()) {
         addIssue(issues, RuleIssueCode::InvalidValue, source,
@@ -280,6 +453,9 @@ void parseIdentifiers(const QJsonObject &root,
                          identifiers.executableOriginalFilenames, issues);
     parseIdentifierArray(object, QStringLiteral("authenticodePublishers"), source,
                          identifiers.authenticodePublishers, issues);
+    parseIdentifierArray(object, QStringLiteral("runningProcessNames"), source,
+                         identifiers.runningProcessNames, issues);
+    validateRunningProcessNames(source, identifiers.runningProcessNames, issues);
 
     if (!identifiers.registryPublishers.isEmpty()
             && identifiers.registryDisplayNames.isEmpty()) {
@@ -319,7 +495,7 @@ void parseLocations(const QJsonObject &root,
         return;
     }
 
-    QSet<QString> seenLocations;
+    QVector<QPair<RuleScope, QString>> seenLocations;
     for (qsizetype index = 0; index < array.size(); ++index) {
         const QString prefix = QStringLiteral("locations[%1]").arg(index);
         if (!array.at(index).isObject()) {
@@ -331,14 +507,14 @@ void parseLocations(const QJsonObject &root,
         const QJsonObject locationObject = array.at(index).toObject();
         rejectUnknownFields(locationObject,
                             {QStringLiteral("scope"), QStringLiteral("path"),
-                             QStringLiteral("ownership")},
+                             QStringLiteral("ownership"), QStringLiteral("role")},
                             prefix, source, issues);
         const auto scopeText = requiredString(locationObject, QStringLiteral("scope"),
                                                prefix + QStringLiteral(".scope"),
                                                source, issues);
-        const auto pathText = requiredString(locationObject, QStringLiteral("path"),
-                                              prefix + QStringLiteral(".path"),
-                                              source, issues);
+        const auto pathText = requiredPathString(
+                locationObject, QStringLiteral("path"),
+                prefix + QStringLiteral(".path"), source, issues);
         if (!scopeText || !pathText)
             continue;
 
@@ -359,6 +535,23 @@ void parseLocations(const QJsonObject &root,
             ownership = *parsedOwnership;
         }
 
+        RuleLocationRole role = RuleLocationRole::Data;
+        if (locationObject.contains(QStringLiteral("role"))) {
+            const auto roleText = requiredString(
+                    locationObject, QStringLiteral("role"),
+                    prefix + QStringLiteral(".role"), source, issues);
+            if (!roleText)
+                continue;
+            const auto parsedRole = parseLocationRole(*roleText);
+            if (!parsedRole) {
+                addIssue(issues, RuleIssueCode::InvalidValue, source,
+                         prefix + QStringLiteral(".role"),
+                         QStringLiteral("未知目录角色"));
+                continue;
+            }
+            role = *parsedRole;
+        }
+
         const auto scope = parseScope(*scopeText);
         if (!scope) {
             addIssue(issues, RuleIssueCode::InvalidValue, source,
@@ -366,21 +559,25 @@ void parseLocations(const QJsonObject &root,
                      QStringLiteral("未知目录范围，只允许 local、roaming 或 locallow"));
             continue;
         }
-        const auto path = normalizedRelativePath(*pathText,
+        const auto path = normalizedRelativePath(*pathText, false,
                                                  prefix + QStringLiteral(".path"),
                                                  source, issues);
         if (!path)
             continue;
 
-        const QString locationKey = QString::number(static_cast<int>(*scope))
-                + QLatin1Char(':') + path->toCaseFolded();
-        if (seenLocations.contains(locationKey)) {
+        const bool overlaps = std::any_of(
+                seenLocations.cbegin(), seenLocations.cend(),
+                [scope, &path](const auto &existing) {
+            return existing.first == *scope
+                    && pathPrefixesOverlap(existing.second, *path);
+        });
+        if (overlaps) {
             addIssue(issues, RuleIssueCode::InvalidValue, source, prefix,
-                     QStringLiteral("应用目录重复"));
+                     QStringLiteral("同一 AppData 范围内的应用目录不能重复或互相嵌套"));
             continue;
         }
-        seenLocations.insert(locationKey);
-        locations.append({*scope, *path, ownership});
+        seenLocations.append({*scope, *path});
+        locations.append({*scope, *path, ownership, role});
     }
 }
 
@@ -409,6 +606,7 @@ void parseEntries(const QJsonObject &root,
     }
 
     QSet<QString> seenIds;
+    QSet<QString> seenPaths;
     for (qsizetype index = 0; index < array.size(); ++index) {
         const QString prefix = QStringLiteral("entries[%1]").arg(index);
         if (!array.at(index).isObject()) {
@@ -420,13 +618,16 @@ void parseEntries(const QJsonObject &root,
         const QJsonObject entryObject = array.at(index).toObject();
         rejectUnknownFields(entryObject,
                             {QStringLiteral("id"), QStringLiteral("path"),
+                             QStringLiteral("paths"),
                              QStringLiteral("category"), QStringLiteral("risk"),
                              QStringLiteral("rebuildable"), QStringLiteral("impact")},
                             prefix, source, issues);
         const auto id = requiredString(entryObject, QStringLiteral("id"),
                                        prefix + QStringLiteral(".id"), source, issues);
-        const auto pathText = requiredString(entryObject, QStringLiteral("path"),
-                                              prefix + QStringLiteral(".path"), source, issues);
+        QStringList pathTexts;
+        const bool hasPaths = parsePathAlternatives(
+                entryObject, QStringLiteral("path"), QStringLiteral("paths"),
+                prefix + QStringLiteral(".path"), source, issues, pathTexts);
         const auto categoryText = requiredString(entryObject, QStringLiteral("category"),
                                                   prefix + QStringLiteral(".category"),
                                                   source, issues);
@@ -439,7 +640,7 @@ void parseEntries(const QJsonObject &root,
                      prefix + QStringLiteral(".rebuildable"),
                      QStringLiteral("缺少必填字段"));
         }
-        if (!id || !pathText || !categoryText || !riskText || !impact
+        if (!id || !hasPaths || !categoryText || !riskText || !impact
                 || !entryObject.contains(QStringLiteral("rebuildable"))) {
             continue;
         }
@@ -457,9 +658,33 @@ void parseEntries(const QJsonObject &root,
             valid = false;
         }
 
-        const auto path = normalizedRelativePath(*pathText,
-                                                 prefix + QStringLiteral(".path"),
-                                                 source, issues);
+        QStringList normalizedPaths;
+        normalizedPaths.reserve(pathTexts.size());
+        for (qsizetype pathIndex = 0; pathIndex < pathTexts.size(); ++pathIndex) {
+            const QString pathField = pathTexts.size() == 1
+                    ? prefix + QStringLiteral(".path")
+                    : QStringLiteral("%1.paths[%2]").arg(prefix).arg(pathIndex);
+            const QString rawPath = pathTexts.at(pathIndex);
+            const bool containsGlob = rawPath.contains(QLatin1Char('*'));
+            if (containsGlob) {
+                QString globError;
+                if (!GlobMatcher::validate(rawPath, &globError)) {
+                    addIssue(issues, RuleIssueCode::UnsafePath, source, pathField,
+                             QStringLiteral("Glob 路径不安全：%1").arg(globError));
+                    valid = false;
+                    continue;
+                }
+            }
+            const auto path = normalizedRelativePath(
+                    rawPath, !containsGlob, pathField, source, issues, containsGlob);
+            if (!path) {
+                valid = false;
+                continue;
+            }
+            normalizedPaths.append(*path);
+        }
+        if (normalizedPaths.isEmpty())
+            valid = false;
         const auto category = parseCategory(*categoryText);
         if (!category) {
             addIssue(issues, RuleIssueCode::InvalidValue, source,
@@ -482,13 +707,64 @@ void parseEntries(const QJsonObject &root,
                      QStringLiteral("值必须是布尔值或 unknown"));
             valid = false;
         }
-        if (!path)
+        for (const QString &path : std::as_const(normalizedPaths)) {
+            const QString pathKey = path.toCaseFolded();
+            if (seenPaths.contains(pathKey)) {
+                addIssue(issues, RuleIssueCode::InvalidValue, source,
+                         prefix + QStringLiteral(".paths"),
+                         QStringLiteral("分类路径与同一规则中的其他条目重复"));
+                valid = false;
+            }
+        }
+
+        const QString firstPath = normalizedPaths.isEmpty()
+                ? QString() : normalizedPaths.constFirst();
+        if (!firstPath.isEmpty() && risk && firstPath == QStringLiteral(".")
+                && *risk == RiskLevel::Safe) {
+            addIssue(issues, RuleIssueCode::InvalidValue, source,
+                     prefix + QStringLiteral(".risk"),
+                     QStringLiteral("位置根目录不能声明为可安全清理"));
             valid = false;
+        }
+        if (risk && rebuildable && *risk == RiskLevel::Safe
+                && *rebuildable != RebuildableState::Yes) {
+            addIssue(issues, RuleIssueCode::InvalidValue, source,
+                     prefix + QStringLiteral(".rebuildable"),
+                     QStringLiteral("safe 条目必须明确可重新生成"));
+            valid = false;
+        }
+        if (risk && category && *risk == RiskLevel::Safe
+                && *category != DataCategory::Cache
+                && *category != DataCategory::Temp
+                && *category != DataCategory::DownloadedResource) {
+            addIssue(issues, RuleIssueCode::InvalidValue, source,
+                     prefix + QStringLiteral(".category"),
+                     QStringLiteral("safe 条目只能用于缓存、临时内容或可重新下载资源"));
+            valid = false;
+        }
+        if (risk && category
+                && (*category == DataCategory::Credential
+                    || *category == DataCategory::Cookie
+                    || *category == DataCategory::Database
+                    || *category == DataCategory::Session
+                    || *category == DataCategory::UserData
+                    || *category == DataCategory::Workspace
+                    || *category == DataCategory::SaveGame)
+                && (*risk == RiskLevel::Safe || *risk == RiskLevel::Low)) {
+            addIssue(issues, RuleIssueCode::InvalidValue, source,
+                     prefix + QStringLiteral(".risk"),
+                     QStringLiteral("敏感或用户数据条目不能声明为低风险"));
+            valid = false;
+        }
 
         if (!valid)
             continue;
         seenIds.insert(*id);
-        entries.append({*id, *path, *category, *risk, *rebuildable, *impact});
+        for (const QString &path : std::as_const(normalizedPaths))
+            seenPaths.insert(path.toCaseFolded());
+        RuleEntry entry {*id, firstPath, *category, *risk, *rebuildable, *impact};
+        entry.paths = normalizedPaths;
+        entries.append(std::move(entry));
     }
 }
 
@@ -521,6 +797,7 @@ RuleLoadResult RuleLoader::load(const QByteArray &json, const QString &sourceNam
                          QStringLiteral("publisher"),
                          QStringLiteral("applicationCategory"),
                          QStringLiteral("executablePath"), QStringLiteral("installPath"),
+                         QStringLiteral("executables"), QStringLiteral("installPaths"),
                          QStringLiteral("identifiers"),
                          QStringLiteral("locations"), QStringLiteral("entries")},
                         {}, source, result.issues);
@@ -541,39 +818,60 @@ RuleLoadResult RuleLoader::load(const QByteArray &json, const QString &sourceNam
     const auto category = requiredString(root, QStringLiteral("applicationCategory"),
                                          QStringLiteral("applicationCategory"),
                                          source, result.issues);
-    const auto executablePath = requiredString(root, QStringLiteral("executablePath"),
-                                               QStringLiteral("executablePath"),
-                                               source, result.issues);
-    const auto installPath = requiredString(root, QStringLiteral("installPath"),
-                                            QStringLiteral("installPath"),
-                                            source, result.issues);
+    QStringList executablePaths;
+    QStringList installPaths;
+    parsePathAlternatives(
+            root, QStringLiteral("executablePath"), QStringLiteral("executables"),
+            QStringLiteral("executablePath"), source, result.issues, executablePaths);
+    parsePathAlternatives(
+            root, QStringLiteral("installPath"), QStringLiteral("installPaths"),
+            QStringLiteral("installPath"), source, result.issues, installPaths);
 
     if (id && !hasSafeIdentifier(*id)) {
         addIssue(result.issues, RuleIssueCode::InvalidValue, source, QStringLiteral("id"),
                  QStringLiteral("应用标识只能包含小写字母、数字、点、下划线和连字符"));
     }
-    const auto validateAbsoluteRulePath = [&result, &root, &source](
-            const std::optional<QString> &path, const QString &field) {
-        if (!path)
-            return;
-        const QString rawPath = root.value(field).toString();
-        if (rawPath != rawPath.trimmed()) {
-            addIssue(result.issues, RuleIssueCode::UnsafePath, source, field,
-                     QStringLiteral("规则路径不安全：路径首尾不能包含空白字符"));
-            return;
-        }
-        QString error;
-        if (!validateRulePath(*path, &error)) {
-            addIssue(result.issues, RuleIssueCode::UnsafePath, source, field,
-                     QStringLiteral("规则路径不安全：%1").arg(error));
+    const auto validateAbsoluteRulePath = [&result, &source](
+            const QStringList &paths, const QString &field) {
+        for (qsizetype index = 0; index < paths.size(); ++index) {
+            const QString &path = paths.at(index);
+            const QString pathField = paths.size() == 1
+                    ? field : QStringLiteral("%1[%2]").arg(field).arg(index);
+            if (path != path.trimmed()) {
+                addIssue(result.issues, RuleIssueCode::UnsafePath, source, pathField,
+                         QStringLiteral("规则路径不安全：路径首尾不能包含空白字符"));
+                continue;
+            }
+            QString error;
+            if (!validateRulePath(path, &error)) {
+                addIssue(result.issues, RuleIssueCode::UnsafePath, source, pathField,
+                         QStringLiteral("规则路径不安全：%1").arg(error));
+            }
         }
     };
-    validateAbsoluteRulePath(executablePath, QStringLiteral("executablePath"));
-    validateAbsoluteRulePath(installPath, QStringLiteral("installPath"));
+    validateAbsoluteRulePath(executablePaths, QStringLiteral("executablePath"));
+    validateAbsoluteRulePath(installPaths, QStringLiteral("installPath"));
 
     parseIdentifiers(root, source, rule.identifiers, result.issues);
     parseLocations(root, source, rule.locations, result.issues);
     parseEntries(root, source, rule.entries, result.issues);
+    const bool hasExclusiveLocation = std::any_of(
+            rule.locations.cbegin(), rule.locations.cend(),
+            [](const RuleLocation &location) {
+        return location.ownership == RuleLocationOwnership::Exclusive;
+    });
+    const bool hasSafeCleanupEntry = std::any_of(
+            rule.entries.cbegin(), rule.entries.cend(),
+            [](const RuleEntry &entry) {
+        return entry.risk == RiskLevel::Safe
+                && entry.rebuildable == RebuildableState::Yes;
+    });
+    if (hasExclusiveLocation && hasSafeCleanupEntry
+            && rule.identifiers.runningProcessNames.isEmpty()) {
+        addIssue(result.issues, RuleIssueCode::MissingField, source,
+                 QStringLiteral("identifiers.runningProcessNames"),
+                 QStringLiteral("专属目录包含安全清理条目时必须声明运行进程名"));
+    }
     if (!result.issues.isEmpty())
         return result;
 
@@ -582,9 +880,13 @@ RuleLoadResult RuleLoader::load(const QByteArray &json, const QString &sourceNam
     rule.name = *name;
     rule.publisher = *publisher;
     rule.category = *category;
-    rule.executablePath = *executablePath;
-    rule.installPath = *installPath;
+    rule.executablePaths = executablePaths;
+    rule.installPaths = installPaths;
+    rule.executablePath = executablePaths.constFirst();
+    rule.installPath = installPaths.constFirst();
     rule.sourceName = source;
+    rule.origin = originForSource(source);
+    rule.trustLevel = trustLevelForOrigin(rule.origin);
     result.rule = std::move(rule);
     return result;
 }

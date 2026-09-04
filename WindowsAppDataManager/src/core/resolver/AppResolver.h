@@ -16,6 +16,9 @@ struct ScanTarget {
     QString ruleSource;
     RuleLocationOwnership locationOwnership = RuleLocationOwnership::Shared;
     bool locationDiscoveryComplete = true;
+    RuleLocationRole locationRole = RuleLocationRole::Data;
+    RuleOrigin ruleOrigin = RuleOrigin::Unknown;
+    RuleTrustLevel ruleTrustLevel = RuleTrustLevel::Unknown;
 };
 
 class AppResolver final {

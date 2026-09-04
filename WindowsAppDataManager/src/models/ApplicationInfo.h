@@ -6,6 +6,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include "RuleMetadata.h"
+
 namespace wam {
 
 enum class DataCategory {
@@ -47,6 +49,28 @@ enum class InstallState {
     Unknown
 };
 
+enum class AttributionState {
+    Verified,
+    StrongInferred,
+    Suggested,
+    Unknown
+};
+
+enum class InstallationState {
+    Installed,
+    NotObserved,
+    Unknown
+};
+
+enum class OwnerKind {
+    Application,
+    Runtime,
+    PackageManager,
+    Vendor,
+    System,
+    Unknown
+};
+
 enum class EvidenceSource {
     Registry,
     Appx,
@@ -74,6 +98,22 @@ struct EvidenceInfo {
     QString detail;
 
     bool operator==(const EvidenceInfo &) const = default;
+};
+
+struct AttributionAssessment {
+    AttributionState state = AttributionState::Unknown;
+    int confidence = 0;
+    QVector<EvidenceInfo> evidence;
+
+    bool operator==(const AttributionAssessment &) const = default;
+};
+
+struct InstallationAssessment {
+    InstallationState state = InstallationState::Unknown;
+    int confidence = 0;
+    QVector<EvidenceInfo> evidence;
+
+    bool operator==(const InstallationAssessment &) const = default;
 };
 
 struct OrphanAssessment {
@@ -108,6 +148,7 @@ struct CleanupCandidateInfo {
     QString applicationName;
     QString applicationRoot;
     QString executablePath;
+    QStringList runningProcessNames;
     QString path;
     QString ruleEntryId;
     QString ruleSource;
@@ -127,6 +168,8 @@ struct CleanupCandidateInfo {
     bool exclusiveLocation = false;
     bool scanComplete = false;
     bool containsUnsafeData = false;
+    RuleOrigin ruleOrigin = RuleOrigin::BuiltIn;
+    RuleTrustLevel ruleTrustLevel = RuleTrustLevel::Verified;
 
     bool operator==(const CleanupCandidateInfo &) const = default;
 };
@@ -138,6 +181,7 @@ struct ApplicationInfo {
     QString category;
     QString location;
     QString executablePath;
+    QStringList runningProcessNames;
     QString installPath;
 
     quint64 totalSize = 0;
@@ -149,6 +193,9 @@ struct ApplicationInfo {
     QDateTime lastModified;
     InstallState installState = InstallState::Unknown;
     int confidence = 0;
+    AttributionAssessment attribution;
+    InstallationAssessment installation;
+    OwnerKind ownerKind = OwnerKind::Unknown;
     bool scanComplete = false;
     OrphanAssessment orphanAssessment;
     RiskLevel risk = RiskLevel::Unknown;

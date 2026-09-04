@@ -167,6 +167,8 @@ private slots:
     void deletionProbeHonorsPreCancelledToken();
     void validatorUsesTargetNameForUnreadableProcesses_data();
     void validatorUsesTargetNameForUnreadableProcesses();
+    void validatorUsesConfiguredProcessNames_data();
+    void validatorUsesConfiguredProcessNames();
     void serviceStopsAfterAbortedOutcome();
     void serviceCountsMovedItemWhenExecutorReportsAborted();
 };
@@ -226,6 +228,54 @@ void CleanupSafetyTest::validatorUsesTargetNameForUnreadableProcesses()
     processes.enumerationComplete = enumerationComplete;
     processes.complete = false;
     processes.processes.append({1234, imageName, {}});
+
+    const auto result = wam::core::CleanupValidator::validateProcessState(
+            candidate, processes);
+    QCOMPARE(static_cast<int>(result.state), expectedState);
+}
+
+void CleanupSafetyTest::validatorUsesConfiguredProcessNames_data()
+{
+    QTest::addColumn<QStringList>("runningProcessNames");
+    QTest::addColumn<QString>("imageName");
+    QTest::addColumn<QString>("imagePath");
+    QTest::addColumn<int>("expectedState");
+    QTest::newRow("configured-name-different-readable-path")
+            << QStringList {QStringLiteral("SampleHelper.exe")}
+            << QStringLiteral("SAMPLEHELPER.EXE")
+            << QStringLiteral("D:/Portable/SampleHelper.exe")
+            << static_cast<int>(wam::core::CleanupValidationState::Blocked);
+    QTest::newRow("no-configured-name-keeps-path-only-behavior")
+            << QStringList {}
+            << QStringLiteral("sample.exe")
+            << QStringLiteral("D:/Unrelated/sample.exe")
+            << static_cast<int>(wam::core::CleanupValidationState::Ready);
+    QTest::newRow("unrelated-configured-name")
+            << QStringList {QStringLiteral("SampleHelper.exe")}
+            << QStringLiteral("other.exe")
+            << QStringLiteral("D:/Portable/other.exe")
+            << static_cast<int>(wam::core::CleanupValidationState::Ready);
+}
+
+void CleanupSafetyTest::validatorUsesConfiguredProcessNames()
+{
+    QFETCH(QStringList, runningProcessNames);
+    QFETCH(QString, imageName);
+    QFETCH(QString, imagePath);
+    QFETCH(int, expectedState);
+
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString scanRoot =
+            QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    wam::CleanupCandidateInfo candidate = syntheticCandidate(scanRoot);
+    candidate.runningProcessNames = runningProcessNames;
+    wam::platform::windows::RunningProcessQueryResult processes;
+    processes.supported = true;
+    processes.available = true;
+    processes.enumerationComplete = true;
+    processes.complete = true;
+    processes.processes.append({1234, imageName, imagePath});
 
     const auto result = wam::core::CleanupValidator::validateProcessState(
             candidate, processes);

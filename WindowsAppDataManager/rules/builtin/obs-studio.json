@@ -1,0 +1,62 @@
+{
+  "$schema": "../schema.json",
+  "id": "obs-studio",
+  "version": "1",
+  "name": "OBS Studio",
+  "publisher": "OBS Project",
+  "applicationCategory": "影音工具",
+  "executablePath": "%ProgramFiles%/obs-studio/bin/64bit/obs64.exe",
+  "installPath": "%ProgramFiles%/obs-studio",
+  "identifiers": {
+    "registryDisplayNames": ["OBS Studio"],
+    "executableProductNames": ["OBS Studio"],
+    "executableCompanyNames": ["OBS Project"],
+    "executableOriginalFilenames": ["obs64.exe"],
+    "runningProcessNames": ["obs64.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "obs-studio", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧录制和推流诊断日志会被移除。"
+    },
+    {
+      "id": "crashes",
+      "path": "crashes",
+      "category": "crash-dump",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "历史崩溃报告会被移除，OBS 仍会生成后续报告。"
+    },
+    {
+      "id": "plugin-config",
+      "path": "plugin_config",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含插件配置，默认禁止处理。"
+    },
+    {
+      "id": "profiles",
+      "path": "basic/profiles",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含录制、推流和场景配置，默认禁止处理。"
+    },
+    {
+      "id": "scene-collections",
+      "path": "basic/scenes",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含场景集合和来源配置，默认禁止处理。"
+    }
+  ]
+}

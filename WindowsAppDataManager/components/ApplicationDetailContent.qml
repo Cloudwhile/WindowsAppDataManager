@@ -31,19 +31,12 @@ Item {
             width: parent.width
             spacing: 12
 
-            Rectangle {
+            ApplicationIcon {
                 Layout.preferredWidth: detail.paneMode ? 44 : 50
                 Layout.preferredHeight: width
-                radius: Theme.radiusMedium
-                color: Theme.applicationAccent(detail.application.accentIndex)
-
-                Text {
-                    anchors.centerIn: parent
-                    text: detail.application.shortName
-                    color: Theme.applicationAccentText(detail.application.accentIndex)
-                    font.pixelSize: detail.application.shortName.length > 2 ? 10 : 16
-                    font.weight: Font.Bold
-                }
+                iconSource: detail.application.iconSource || ""
+                shortName: detail.application.shortName
+                accentIndex: detail.application.accentIndex
             }
 
             ColumnLayout {

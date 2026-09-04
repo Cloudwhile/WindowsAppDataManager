@@ -55,7 +55,7 @@ compile_commands.json
 
 *_qmlcache.qrc
 
-Agent*
+*Agent.md
 
 Preview/
 out/
@@ -63,3 +63,4 @@ out/
 .vs/
 CMakeUserPresets.json
 WindowsAppDataManager.slnx
+*.template.md

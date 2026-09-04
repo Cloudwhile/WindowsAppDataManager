@@ -1,0 +1,94 @@
+{
+  "$schema": "../schema.json",
+  "id": "slack",
+  "version": "1",
+  "name": "Slack",
+  "publisher": "Slack Technologies, LLC",
+  "applicationCategory": "通讯",
+  "executablePath": "%LOCALAPPDATA%/slack/slack.exe",
+  "installPath": "%LOCALAPPDATA%/slack",
+  "identifiers": {
+    "registryDisplayNames": ["Slack"],
+    "executableProductNames": ["Slack"],
+    "executableCompanyNames": ["Slack Technologies, LLC"],
+    "executableOriginalFilenames": ["slack.exe"],
+    "runningProcessNames": ["slack.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Slack", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "消息资源缓存会在 Slack 再次使用时重新下载。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示内容可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，Slack 仍会生成新日志。"
+    },
+    {
+      "id": "session-storage",
+      "path": "Session Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能导致 Slack 工作区退出登录或丢失未同步的会话状态。"
+    },
+    {
+      "id": "local-storage",
+      "path": "Local Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含工作区和扩展本地状态，移除后可能需要重新登录。"
+    },
+    {
+      "id": "indexed-db",
+      "path": "IndexedDB",
+      "category": "database",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含离线数据和应用数据库，移除后可能造成数据丢失。"
+    },
+    {
+      "id": "cookies",
+      "path": "Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能使工作区退出登录，并丢失部分本地偏好。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含应用级配置和加密数据相关状态，默认禁止处理。"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "../schema.json",
+  "id": "mozilla-firefox",
+  "version": "1",
+  "name": "Mozilla Firefox",
+  "publisher": "Mozilla Corporation",
+  "applicationCategory": "浏览器",
+  "executablePath": "%ProgramFiles%/Mozilla Firefox/firefox.exe",
+  "installPath": "%ProgramFiles%/Mozilla Firefox",
+  "identifiers": {
+    "registryDisplayNames": ["Mozilla Firefox"],
+    "executableProductNames": ["Firefox"],
+    "executableCompanyNames": ["Mozilla Corporation"],
+    "executableOriginalFilenames": ["firefox.exe"],
+    "runningProcessNames": ["firefox.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Mozilla/Firefox", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "crash-reports",
+      "path": "Crash Reports",
+      "category": "crash-dump",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "已提交的崩溃报告会被移除，Firefox 仍会生成后续报告。"
+    },
+    {
+      "id": "pending-pings",
+      "path": "Pending Pings",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "尚未发送的诊断记录会被移除。"
+    },
+    {
+      "id": "profiles",
+      "path": "Profiles",
+      "category": "user-data",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含书签、扩展、历史记录和登录状态，默认禁止处理。"
+    }
+  ]
+}

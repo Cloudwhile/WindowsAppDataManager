@@ -1,0 +1,37 @@
+{
+  "$schema": "../schema.json",
+  "id": "telegram-desktop",
+  "version": "1",
+  "name": "Telegram Desktop",
+  "publisher": "Telegram FZ-LLC",
+  "applicationCategory": "通讯",
+  "executablePath": "%APPDATA%/Telegram Desktop/Telegram.exe",
+  "installPath": "%APPDATA%/Telegram Desktop",
+  "identifiers": {
+    "registryDisplayNames": ["Telegram Desktop"],
+    "executableProductNames": ["Telegram Desktop"],
+    "executableOriginalFilenames": ["Telegram.exe"],
+    "runningProcessNames": ["Telegram.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Telegram Desktop", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "temporary-data",
+      "path": "tdata/temp",
+      "category": "temp",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "临时传输文件会在需要时重新生成或下载。"
+    },
+    {
+      "id": "tdata",
+      "path": "tdata",
+      "category": "credential",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含登录会话和本地密钥，删除会使账号退出并可能丢失本地状态。"
+    }
+  ]
+}

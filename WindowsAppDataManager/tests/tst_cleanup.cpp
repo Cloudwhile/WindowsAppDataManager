@@ -78,6 +78,8 @@ wam::ApplicationInfo eligibleApplication(const QString &scanRoot)
     application.name = QStringLiteral("Sample App");
     application.installState = wam::InstallState::Installed;
     application.confidence = 96;
+    application.attribution = {wam::AttributionState::Verified, 96, {}};
+    application.installation = {wam::InstallationState::Installed, 90, {}};
     application.scanComplete = true;
     application.evidence.append({
         wam::EvidenceSource::RunningProcess,
@@ -219,6 +221,9 @@ private slots:
     void planBuilderIncludesOnlyEligibleCandidatesByDefaultUnselected();
     void planBuilderExcludesUnsafeCandidates_data();
     void planBuilderExcludesUnsafeCandidates();
+    void planBuilderRejectsInferredAttribution();
+    void planBuilderRejectsUntrustedRuleMetadata();
+    void validatorRejectsUntrustedRuleMetadata();
     void planBuilderRejectsOverlappingPaths();
     void planModelRequiresExplicitPendingSelection();
     void scanBuildsExactCandidateAndDetectsSensitivePollution();
@@ -292,9 +297,12 @@ void CleanupTest::planBuilderExcludesUnsafeCandidates()
     switch (scenario) {
     case 0:
         application.installState = wam::InstallState::Unknown;
+        application.installation.state = wam::InstallationState::Unknown;
+        application.installation.confidence = 0;
         break;
     case 1:
         application.confidence = context.minimumApplicationConfidence - 1;
+        application.attribution.confidence = context.minimumApplicationConfidence - 1;
         break;
     case 2:
         application.scanComplete = false;
@@ -369,6 +377,69 @@ void CleanupTest::planBuilderExcludesUnsafeCandidates()
     QCOMPARE(plan.estimatedSize, quint64(0));
     QCOMPARE(plan.excludedCount, 1);
     QCOMPARE(plan.exclusionReasons.size(), 1);
+}
+
+void CleanupTest::planBuilderRejectsInferredAttribution()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString scanRoot = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    wam::ApplicationInfo application = eligibleApplication(scanRoot);
+    application.attribution.state = wam::AttributionState::StrongInferred;
+    application.attribution.confidence = 99;
+
+    const wam::CleanupPlan plan = wam::core::CleanupPlanBuilder::build(
+            {application}, buildContext(scanRoot));
+
+    QVERIFY(plan.items.isEmpty());
+    QCOMPARE(plan.excludedCount, 1);
+    QCOMPARE(plan.exclusionReasons.size(), 1);
+    QVERIFY(plan.exclusionReasons.constFirst().contains(
+            QStringLiteral("未达到已验证级别")));
+}
+
+void CleanupTest::planBuilderRejectsUntrustedRuleMetadata()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString scanRoot = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+
+    wam::ApplicationInfo application = eligibleApplication(scanRoot);
+    auto &candidate = application.cleanupCandidates.first();
+    candidate.ruleSource = QStringLiteral("内置规则 / sample-app@1");
+    candidate.ruleOrigin = wam::RuleOrigin::Community;
+    candidate.ruleTrustLevel = wam::RuleTrustLevel::Unverified;
+
+    const wam::CleanupPlan plan = wam::core::CleanupPlanBuilder::build(
+            {application}, buildContext(scanRoot));
+
+    QVERIFY(plan.items.isEmpty());
+    QCOMPARE(plan.excludedCount, 1);
+    QVERIFY(plan.exclusionReasons.constFirst().contains(
+            QStringLiteral("已验证内置规则")));
+
+    candidate.ruleOrigin = wam::RuleOrigin::BuiltIn;
+    candidate.ruleTrustLevel = wam::RuleTrustLevel::Unverified;
+    const wam::CleanupPlan trustPlan = wam::core::CleanupPlanBuilder::build(
+            {application}, buildContext(scanRoot));
+    QVERIFY(trustPlan.items.isEmpty());
+    QCOMPARE(trustPlan.excludedCount, 1);
+}
+
+void CleanupTest::validatorRejectsUntrustedRuleMetadata()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const QString scanRoot = QDir(temporary.path()).filePath(QStringLiteral("Local"));
+    wam::CleanupCandidateInfo candidate = syntheticCandidate(scanRoot);
+    candidate.ruleOrigin = wam::RuleOrigin::Community;
+    candidate.ruleTrustLevel = wam::RuleTrustLevel::Unverified;
+
+    const auto result = wam::core::CleanupValidator::validate(
+            candidate, {scanRoot}, completeProcessSnapshot());
+
+    QCOMPARE(result.state, wam::core::CleanupValidationState::Blocked);
+    QVERIFY(result.message.contains(QStringLiteral("安全计划条件")));
 }
 
 void CleanupTest::planBuilderRejectsOverlappingPaths()
@@ -504,6 +575,8 @@ void CleanupTest::scanBuildsExactCandidateAndDetectsSensitivePollution()
     });
     QVERIFY(firstCandidate != firstApplication->cleanupCandidates.cend());
     QVERIFY(firstCandidate->verifiedRule);
+    QCOMPARE(firstCandidate->ruleOrigin, wam::RuleOrigin::BuiltIn);
+    QCOMPARE(firstCandidate->ruleTrustLevel, wam::RuleTrustLevel::Verified);
     QVERIFY(firstCandidate->exclusiveLocation);
     QVERIFY(firstCandidate->scanComplete);
     QVERIFY(firstCandidate->identityValid);

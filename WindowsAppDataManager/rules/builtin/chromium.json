@@ -11,15 +11,16 @@
     "registryDisplayNames": ["Chromium"],
     "executableProductNames": ["Chromium"],
     "executableCompanyNames": ["The Chromium Authors"],
-    "executableOriginalFilenames": ["chrome.exe"]
+    "executableOriginalFilenames": ["chrome.exe"],
+    "runningProcessNames": ["chrome.exe"]
   },
   "locations": [
-    { "scope": "local", "path": "Chromium", "ownership": "exclusive" }
+    { "scope": "local", "path": "Chromium/User Data", "ownership": "exclusive" }
   ],
   "entries": [
     {
       "id": "default-cache",
-      "path": "User Data/Default/Cache",
+      "path": "Default/Cache",
       "category": "cache",
       "risk": "safe",
       "rebuildable": true,
@@ -27,7 +28,7 @@
     },
     {
       "id": "default-code-cache",
-      "path": "User Data/Default/Code Cache",
+      "path": "Default/Code Cache",
       "category": "cache",
       "risk": "safe",
       "rebuildable": true,
@@ -35,7 +36,7 @@
     },
     {
       "id": "default-gpu-cache",
-      "path": "User Data/Default/GPUCache",
+      "path": "Default/GPUCache",
       "category": "cache",
       "risk": "safe",
       "rebuildable": true,
@@ -43,7 +44,7 @@
     },
     {
       "id": "crash-reports",
-      "path": "User Data/Crashpad/reports",
+      "path": "Crashpad/reports",
       "category": "crash-dump",
       "risk": "low",
       "rebuildable": false,
@@ -51,19 +52,107 @@
     },
     {
       "id": "default-session",
-      "path": "User Data/Default/Session Storage",
+      "path": "Default/Session Storage",
       "category": "session",
       "risk": "high",
       "rebuildable": false,
       "impact": "可能导致退出登录或丢失尚未同步的网页状态。"
     },
     {
+      "id": "default-sessions",
+      "path": "Default/Sessions",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含窗口和标签页恢复状态，移除后可能无法恢复上次浏览会话。"
+    },
+    {
+      "id": "default-cookies",
+      "path": "Default/Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含旧版配置中的网站会话，移除后可能导致网站退出登录。"
+    },
+    {
+      "id": "default-network-cookies",
+      "path": "Default/Network/Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含网站会话，移除后可能导致网站退出登录。"
+    },
+    {
       "id": "default-credentials",
-      "path": "User Data/Default/Login Data",
+      "path": "Default/Login Data",
       "category": "credential",
       "risk": "protected",
       "rebuildable": false,
       "impact": "包含登录凭据相关数据，默认禁止处理。"
+    },
+    {
+      "id": "default-web-data",
+      "path": "Default/Web Data",
+      "category": "user-data",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "可能包含自动填充和付款资料，默认禁止处理。"
+    },
+    {
+      "id": "default-history",
+      "path": "Default/History",
+      "category": "user-data",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含本地浏览历史，未同步内容可能无法恢复。"
+    },
+    {
+      "id": "default-bookmarks",
+      "path": "Default/Bookmarks",
+      "category": "user-data",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含本地书签，未同步内容可能无法恢复。"
+    },
+    {
+      "id": "default-local-storage",
+      "path": "Default/Local Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含网站本地状态，移除后可能丢失登录状态或离线数据。"
+    },
+    {
+      "id": "default-indexed-db",
+      "path": "Default/IndexedDB",
+      "category": "database",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含网站数据库和离线数据，移除后可能造成不可恢复的数据丢失。"
+    },
+    {
+      "id": "default-preferences",
+      "path": "Default/Preferences",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含浏览器和网站偏好设置，默认禁止处理。"
+    },
+    {
+      "id": "default-extensions",
+      "path": "Default/Extensions",
+      "category": "extension",
+      "risk": "protected",
+      "rebuildable": "unknown",
+      "impact": "包含已安装扩展，无法保证可完整恢复，默认禁止处理。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含浏览器级配置和加密数据相关状态，默认禁止处理。"
     }
   ]
 }

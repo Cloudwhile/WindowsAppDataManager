@@ -1,5 +1,7 @@
 #include "DataClassifier.h"
 
+#include "../rules/GlobMatcher.h"
+
 #include <QStringList>
 
 #include <optional>
@@ -59,12 +61,18 @@ QString fileName(const QString &normalizedPath)
     return normalizedPath.sliced(separator + 1).trimmed();
 }
 
-QStringList normalizedRulePaths(const QVector<RuleEntry> &rules)
+QVector<QStringList> normalizedRulePaths(const QVector<RuleEntry> &rules)
 {
-    QStringList result;
+    QVector<QStringList> result;
     result.reserve(rules.size());
-    for (const RuleEntry &entry : rules)
-        result.append(normalizedPath(entry.path));
+    for (const RuleEntry &entry : rules) {
+        QStringList paths = entry.paths;
+        if (paths.isEmpty() && !entry.path.isEmpty())
+            paths.append(entry.path);
+        for (QString &path : paths)
+            path = normalizedPath(std::move(path));
+        result.append(std::move(paths));
+    }
     return result;
 }
 
@@ -99,6 +107,8 @@ bool hasSuffix(const QString &fileName, const QStringList &suffixes)
 
 bool pathPrefixMatches(const QString &path, const QString &prefix)
 {
+    if (prefix == QStringLiteral("."))
+        return !path.isEmpty();
     return !prefix.isEmpty()
             && (path == prefix || path.startsWith(prefix + QLatin1Char('/')));
 }
@@ -161,18 +171,40 @@ std::optional<Classification> sensitiveClassification(
 std::optional<Classification> applicationRuleClassification(
         const QString &path,
         const QVector<RuleEntry> &applicationRules,
-        const QStringList &normalizedApplicationRulePaths,
+        const QVector<QStringList> &normalizedApplicationRulePaths,
         const QString &source)
 {
     const RuleEntry *bestMatch = nullptr;
-    qsizetype bestLength = -1;
+    QString bestPath;
+    qsizetype bestSpecificity = -1;
     for (qsizetype index = 0; index < applicationRules.size(); ++index) {
         const RuleEntry &entry = applicationRules.at(index);
-        const QString &prefix = normalizedApplicationRulePaths.at(index);
-        if (!pathPrefixMatches(path, prefix) || prefix.size() <= bestLength)
-            continue;
-        bestMatch = &entry;
-        bestLength = prefix.size();
+        const QStringList &patterns = normalizedApplicationRulePaths.at(index);
+        const QStringList declaredPaths = entry.paths.isEmpty()
+                ? QStringList {entry.path} : entry.paths;
+        for (qsizetype patternIndex = 0; patternIndex < patterns.size(); ++patternIndex) {
+            const QString &pattern = patterns.at(patternIndex);
+            const bool matched = pattern.contains(QLatin1Char('*'))
+                    ? rules::GlobMatcher::matches(pattern, path)
+                    : pathPrefixMatches(path, pattern);
+            if (!matched)
+                continue;
+
+            // 固定字符越多的模式越具体；通配符（尤其 **）不会增加具体度。
+            qsizetype specificity = 0;
+            for (const QChar character : pattern) {
+                if (character != QLatin1Char('*'))
+                    ++specificity;
+            }
+            if (pattern.contains(QStringLiteral("**")))
+                specificity -= 2;
+            if (specificity <= bestSpecificity)
+                continue;
+            bestMatch = &entry;
+            bestPath = patternIndex < declaredPaths.size()
+                    ? declaredPaths.at(patternIndex) : pattern;
+            bestSpecificity = specificity;
+        }
     }
     if (!bestMatch)
         return std::nullopt;
@@ -181,7 +213,7 @@ std::optional<Classification> applicationRuleClassification(
             ? QStringLiteral("应用规则 / %1").arg(bestMatch->id) : source;
     return makeClassification(bestMatch->id, bestMatch->category, bestMatch->risk,
                               bestMatch->rebuildable, bestMatch->impact,
-                              effectiveSource, bestMatch->path, true);
+                              effectiveSource, bestPath, true);
 }
 
 Classification heuristicClassification(const QStringList &pathComponents,

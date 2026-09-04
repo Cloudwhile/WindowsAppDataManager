@@ -73,7 +73,14 @@ void collectRegistryEvidence(InstallationEvidenceSnapshot &snapshot)
             QStringLiteral("%1|%2").arg(entry.uninstallKeyPath, view),
             entry.displayName,
             entry.publisher,
-            entry.installLocation
+            entry.installLocation,
+            entry.displayVersion,
+            entry.displayIcon,
+            entry.uninstallString,
+            entry.quietUninstallString,
+            entry.modifyPath,
+            entry.windowsInstaller.value_or(false),
+            entry.systemComponent.value_or(false)
         });
     }
 
@@ -196,50 +203,54 @@ void collectInstallPathEvidence(const core::rules::RuleCatalog &catalog,
     bool incomplete = false;
 
     for (const ApplicationRule &rule : catalog.applications()) {
-        const core::rules::RulePathResolution resolution =
-                core::rules::resolveRulePath(rule.installPath);
-        if (!resolution.isResolved()) {
-            const QString claimKey = core::rules::normalizedRulePathClaim(
-                    rule.installPath);
-            if (collectedPaths.contains(claimKey))
+        const QStringList paths = rule.installPaths.isEmpty()
+                ? QStringList {rule.installPath} : rule.installPaths;
+        for (const QString &declaredPath : paths) {
+            const core::rules::RulePathResolution resolution =
+                    core::rules::resolveRulePath(declaredPath);
+            if (!resolution.isResolved()) {
+                const QString claimKey = core::rules::normalizedRulePathClaim(
+                        declaredPath);
+                if (collectedPaths.contains(claimKey))
+                    continue;
+                collectedPaths.insert(claimKey);
+                snapshot.installPaths.records.append({
+                    declaredPath, InstallationPathState::Unavailable, false
+                });
+                snapshot.installPaths.issues.append(
+                        QStringLiteral("%1：%2")
+                                .arg(declaredPath,
+                                     resolution.detail.isEmpty()
+                                             ? QStringLiteral("安装路径当前无法解析")
+                                             : resolution.detail));
+                incomplete = true;
                 continue;
-            collectedPaths.insert(claimKey);
-            snapshot.installPaths.records.append({
-                rule.installPath, InstallationPathState::Unavailable, false
-            });
-            snapshot.installPaths.issues.append(
-                    QStringLiteral("%1：%2")
-                            .arg(rule.installPath,
-                                 resolution.detail.isEmpty()
-                                         ? QStringLiteral("安装路径当前无法解析")
-                                         : resolution.detail));
-            incomplete = true;
-            continue;
-        }
+            }
 
-        const QString key = core::rules::normalizedPathKey(resolution.path);
-        if (collectedPaths.contains(key))
-            continue;
-        collectedPaths.insert(key);
+            const QString key = core::rules::normalizedPathKey(resolution.path);
+            if (collectedPaths.contains(key))
+                continue;
+            collectedPaths.insert(key);
 
-        const platform::windows::PathPresenceResult presence =
-                platform::windows::PathPresenceReader::read(resolution.path);
-        const InstallationPathState state = installationPathState(presence.state);
-        snapshot.installPaths.records.append({resolution.path, state,
-                                              presence.directory});
-        if (!presence.supported || state == InstallationPathState::Unavailable) {
-            incomplete = true;
-            snapshot.installPaths.issues.append(
-                    QStringLiteral("%1：%2")
-                            .arg(resolution.path,
-                                 presence.technicalDetail.isEmpty()
-                                         ? QStringLiteral("安装路径状态当前不可用")
-                                         : presence.technicalDetail));
-        } else if (state == InstallationPathState::Present && !presence.directory) {
-            incomplete = true;
-            snapshot.installPaths.issues.append(
-                    QStringLiteral("%1：安装路径存在，但目标不是目录")
-                            .arg(resolution.path));
+            const platform::windows::PathPresenceResult presence =
+                    platform::windows::PathPresenceReader::read(resolution.path);
+            const InstallationPathState state = installationPathState(presence.state);
+            snapshot.installPaths.records.append({resolution.path, state,
+                                                  presence.directory});
+            if (!presence.supported || state == InstallationPathState::Unavailable) {
+                incomplete = true;
+                snapshot.installPaths.issues.append(
+                        QStringLiteral("%1：%2")
+                                .arg(resolution.path,
+                                     presence.technicalDetail.isEmpty()
+                                             ? QStringLiteral("安装路径状态当前不可用")
+                                             : presence.technicalDetail));
+            } else if (state == InstallationPathState::Present && !presence.directory) {
+                incomplete = true;
+                snapshot.installPaths.issues.append(
+                        QStringLiteral("%1：安装路径存在，但目标不是目录")
+                                .arg(resolution.path));
+            }
         }
     }
 
@@ -333,24 +344,27 @@ void collectExecutableEvidence(const core::rules::RuleCatalog &catalog,
     bool incomplete = false;
 
     for (const ApplicationRule &rule : catalog.applications()) {
+        const QStringList paths = rule.executablePaths.isEmpty()
+                ? QStringList {rule.executablePath} : rule.executablePaths;
+        for (const QString &declaredPath : paths) {
         const core::rules::RulePathResolution resolution =
-                core::rules::resolveRulePath(rule.executablePath);
+                core::rules::resolveRulePath(declaredPath);
         if (!resolution.isResolved()) {
             const QString claimKey = core::rules::normalizedRulePathClaim(
-                    rule.executablePath);
+                    declaredPath);
             if (collectedPaths.contains(claimKey))
                 continue;
             collectedPaths.insert(claimKey);
 
             ExecutableEvidenceRecord record;
-            record.path = rule.executablePath;
+            record.path = declaredPath;
             record.pathState = ExecutablePathState::Unavailable;
             record.metadataState = VersionMetadataState::Unavailable;
             record.authenticodeState = AuthenticodeState::Unavailable;
             snapshot.executable.records.append(std::move(record));
             snapshot.executable.issues.append(
                     QStringLiteral("%1：%2")
-                            .arg(rule.executablePath,
+                            .arg(declaredPath,
                                  resolution.detail.isEmpty()
                                          ? QStringLiteral("规则路径当前无法解析")
                                          : resolution.detail));
@@ -451,6 +465,7 @@ void collectExecutableEvidence(const core::rules::RuleCatalog &catalog,
         }
 
         snapshot.executable.records.append(std::move(record));
+        }
     }
 
     const bool observedPathState = std::any_of(

@@ -69,6 +69,7 @@ Rectangle {
                 required property string appId
                 required property string appName
                 required property string shortName
+                required property url iconSource
                 required property string location
                 required property string category
                 required property string sizeText
@@ -83,6 +84,7 @@ Rectangle {
                     "appId": appId,
                     "appName": appName,
                     "shortName": shortName,
+                    "iconSource": iconSource,
                     "location": location,
                     "category": category,
                     "sizeText": sizeText,

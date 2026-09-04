@@ -30,8 +30,11 @@ bool insideAnyRoot(const QString &path, const QStringList &roots)
 
 bool completeInactiveProcessEvidence(const ApplicationInfo &application)
 {
+    const QVector<EvidenceInfo> &evidenceItems =
+            application.installation.evidence.isEmpty()
+            ? application.evidence : application.installation.evidence;
     bool observed = false;
-    for (const EvidenceInfo &evidence : application.evidence) {
+    for (const EvidenceInfo &evidence : evidenceItems) {
         if (evidence.source != EvidenceSource::RunningProcess)
             continue;
         observed = true;
@@ -39,6 +42,33 @@ bool completeInactiveProcessEvidence(const ApplicationInfo &application)
             return false;
     }
     return observed;
+}
+
+bool hasAttributionAssessment(const ApplicationInfo &application)
+{
+    return application.attribution.confidence > 0
+            || !application.attribution.evidence.isEmpty()
+            || application.attribution.state != AttributionState::Unknown;
+}
+
+bool hasInstallationAssessment(const ApplicationInfo &application)
+{
+    return application.installation.confidence > 0
+            || !application.installation.evidence.isEmpty()
+            || application.installation.state != InstallationState::Unknown;
+}
+
+int attributionConfidence(const ApplicationInfo &application)
+{
+    return hasAttributionAssessment(application)
+            ? application.attribution.confidence : application.confidence;
+}
+
+bool installationConfirmed(const ApplicationInfo &application)
+{
+    return hasInstallationAssessment(application)
+            ? application.installation.state == InstallationState::Installed
+            : application.installState == InstallState::Installed;
 }
 
 QString rejectionReason(const ApplicationInfo &application,
@@ -49,14 +79,22 @@ QString rejectionReason(const ApplicationInfo &application,
             || candidate.applicationId != application.id) {
         return QStringLiteral("清理候选标识或应用归属无效");
     }
-    if (application.installState != InstallState::Installed)
+    if (!installationConfirmed(application))
         return QStringLiteral("应用未确认仍处于安装状态");
-    if (application.confidence < context.minimumApplicationConfidence)
+    if (hasAttributionAssessment(application)
+            && application.attribution.state != AttributionState::Verified) {
+        return QStringLiteral("应用归属未达到已验证级别");
+    }
+    if (attributionConfidence(application) < context.minimumApplicationConfidence)
         return QStringLiteral("应用归属置信度不足");
     if (!application.scanComplete || !candidate.scanComplete)
         return QStringLiteral("目录扫描未完整完成");
     if (!candidate.verifiedRule
             || !candidate.ruleSource.startsWith(QStringLiteral("内置规则 / "))) {
+        return QStringLiteral("清理目标不是已验证内置规则");
+    }
+    if (candidate.ruleOrigin != RuleOrigin::BuiltIn
+            || candidate.ruleTrustLevel != RuleTrustLevel::Verified) {
         return QStringLiteral("清理目标不是已验证内置规则");
     }
     if (!candidate.exclusiveLocation)

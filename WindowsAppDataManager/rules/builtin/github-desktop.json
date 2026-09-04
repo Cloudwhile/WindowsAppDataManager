@@ -1,0 +1,78 @@
+{
+  "$schema": "../schema.json",
+  "id": "github-desktop",
+  "version": "1",
+  "name": "GitHub Desktop",
+  "publisher": "GitHub, Inc.",
+  "applicationCategory": "开发工具",
+  "executablePath": "%LOCALAPPDATA%/GitHubDesktop/GitHubDesktop.exe",
+  "installPath": "%LOCALAPPDATA%/GitHubDesktop",
+  "identifiers": {
+    "registryDisplayNames": ["GitHub Desktop"],
+    "executableProductNames": ["GitHub Desktop"],
+    "executableCompanyNames": ["GitHub, Inc."],
+    "executableOriginalFilenames": ["GitHubDesktop.exe"],
+    "runningProcessNames": ["GitHubDesktop.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "GitHub Desktop", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "仓库和界面资源缓存会在 GitHub Desktop 再次使用时重新生成。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示界面可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，GitHub Desktop 仍会生成新日志。"
+    },
+    {
+      "id": "local-storage",
+      "path": "Local Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能清除账号会话和本地应用状态。"
+    },
+    {
+      "id": "cookies",
+      "path": "Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能使 GitHub 账号退出登录。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含应用配置和加密状态，默认禁止处理。"
+    }
+  ]
+}

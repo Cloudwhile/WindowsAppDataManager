@@ -5,6 +5,7 @@
 #include "../../platform/windows/filesystem/DeletionAccessProbe.h"
 #include "../../platform/windows/filesystem/StablePathIdentity.h"
 
+#include <QDir>
 #include <QFileInfo>
 
 #include <algorithm>
@@ -28,15 +29,46 @@ bool insideAnyRoot(const QString &path, const QStringList &roots)
     });
 }
 
+QString processBasename(const QString &value)
+{
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty())
+        return {};
+    return QFileInfo(QDir::fromNativeSeparators(trimmed)).fileName().trimmed();
+}
+
+bool matchesConfiguredProcessName(
+        const platform::windows::RunningProcessInfo &process,
+        const QStringList &expectedNames)
+{
+    const QString reportedName = processBasename(process.imageName);
+    const QString pathName = processBasename(process.imagePath);
+    return std::any_of(
+            expectedNames.cbegin(), expectedNames.cend(),
+            [&reportedName, &pathName](const QString &expectedName) {
+        const QString expectedBasename = processBasename(expectedName);
+        return !expectedBasename.isEmpty()
+                && ((!reportedName.isEmpty()
+                     && reportedName.compare(
+                                expectedBasename, Qt::CaseInsensitive) == 0)
+                    || (!pathName.isEmpty()
+                        && pathName.compare(
+                                   expectedBasename, Qt::CaseInsensitive) == 0));
+    });
+}
+
 bool processMatches(const QString &expectedPath,
+                    const QStringList &expectedNames,
                     const platform::windows::RunningProcessQueryResult &processes)
 {
     const QString expectedKey = rules::normalizedPathKey(expectedPath);
-    return !expectedKey.isEmpty()
-            && std::any_of(
-                    processes.processes.cbegin(), processes.processes.cend(),
-                    [&expectedKey](const auto &process) {
-        return rules::normalizedPathKey(process.imagePath) == expectedKey;
+    return std::any_of(
+            processes.processes.cbegin(), processes.processes.cend(),
+            [&expectedKey, &expectedNames](const auto &process) {
+        const bool pathMatches = !expectedKey.isEmpty()
+                && rules::normalizedPathKey(process.imagePath) == expectedKey;
+        return pathMatches
+                || matchesConfiguredProcessName(process, expectedNames);
     });
 }
 
@@ -82,8 +114,10 @@ CleanupValidationResult CleanupValidator::validateProcessState(
     if (!processes.supported || !processes.available) {
         return blocked(QStringLiteral("无法完整确认应用当前没有运行"));
     }
-    if (processMatches(candidate.executablePath, processes))
+    if (processMatches(candidate.executablePath,
+                       candidate.runningProcessNames, processes)) {
         return blocked(QStringLiteral("应用仍在运行，已取消该项清理"));
+    }
     if (matchingProcessPathUnreadable(candidate.executablePath, processes)) {
         return blocked(QStringLiteral("检测到同名进程，但无法确认其可执行路径"));
     }
@@ -115,6 +149,8 @@ CleanupValidationResult CleanupValidator::validate(
     }
     if (!candidate.verifiedRule
             || !candidate.ruleSource.startsWith(QStringLiteral("内置规则 / "))
+            || candidate.ruleOrigin != RuleOrigin::BuiltIn
+            || candidate.ruleTrustLevel != RuleTrustLevel::Verified
             || candidate.id.isEmpty() || candidate.applicationId.isEmpty()
             || candidate.ruleEntryId.isEmpty() || candidate.executablePath.isEmpty()
             || candidate.risk != RiskLevel::Safe

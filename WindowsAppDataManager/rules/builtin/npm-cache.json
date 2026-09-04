@@ -11,8 +11,7 @@
     "registryDisplayNames": ["Node.js"]
   },
   "locations": [
-    { "scope": "local", "path": "npm-cache", "ownership": "shared" },
-    { "scope": "roaming", "path": "npm-cache", "ownership": "shared" }
+    { "scope": "local", "path": "npm-cache", "ownership": "shared" }
   ],
   "entries": [
     {
@@ -22,6 +21,14 @@
       "risk": "safe",
       "rebuildable": true,
       "impact": "软件包内容会在后续安装时重新下载。"
+    },
+    {
+      "id": "npx-cache",
+      "path": "_npx",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "npx 下载的临时软件包会在后续执行时重新下载。"
     },
     {
       "id": "logs",

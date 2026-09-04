@@ -12,11 +12,13 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Sql)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Gui Sql Widgets)
 find_package(Qt${QT_VERSION_MAJOR}
     COMPONENTS
         Concurrent
+        Gui
         Sql
+        Widgets
         Qml
         Quick
         QuickControls2
@@ -39,9 +41,17 @@ set(BACKEND_SOURCES
     src/core/classifier/RiskAssessment.h
     src/core/resolver/AppResolver.cpp
     src/core/resolver/AppResolver.h
+    src/core/resolver/AttributionScorer.cpp
+    src/core/resolver/AttributionScorer.h
+    src/core/resolver/CandidateGenerator.cpp
+    src/core/resolver/CandidateGenerator.h
+    src/core/resolver/InstallationResolver.cpp
+    src/core/resolver/InstallationResolver.h
     src/core/resolver/OrphanDetector.cpp
     src/core/resolver/OrphanDetector.h
     src/core/rules/IdentifierNormalization.h
+    src/core/rules/GlobMatcher.cpp
+    src/core/rules/GlobMatcher.h
     src/core/rules/RuleCatalog.cpp
     src/core/rules/RuleCatalog.h
     src/core/rules/RuleLoader.cpp
@@ -56,6 +66,7 @@ set(BACKEND_SOURCES
     src/models/CleanupPlan.h
     src/models/InstallationEvidence.h
     src/models/RuleDefinition.h
+    src/models/RuleMetadata.h
     src/models/ScanResult.h
     src/platform/windows/appx/AppxPackageCatalog.cpp
     src/platform/windows/appx/AppxPackageCatalog.h
@@ -95,7 +106,7 @@ set(BACKEND_SOURCES
 )
 
 add_library(wam_backend STATIC ${BACKEND_SOURCES})
-target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent Qt::Sql)
+target_link_libraries(wam_backend PUBLIC Qt::Core Qt::Concurrent Qt::Gui Qt::Sql Qt::Widgets)
 if(MSVC)
     target_compile_options(wam_backend PRIVATE /EHsc)
 endif()
@@ -113,18 +124,19 @@ endif()
 target_include_directories(wam_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(QT_VERSION_MAJOR EQUAL 6)
+    file(GLOB WAM_BUILTIN_RULE_FILES
+        RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+        CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/rules/builtin/*.json"
+    )
+    list(SORT WAM_BUILTIN_RULE_FILES)
+
     qt_add_resources(wam_backend "wam_builtin_rules"
         PREFIX "/windowsappdatamanager/rules"
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/rules"
         FILES
             rules/schema.json
-            rules/builtin/chrome.json
-            rules/builtin/chromium.json
-            rules/builtin/discord.json
-            rules/builtin/vscode.json
-            rules/builtin/jetbrains.json
-            rules/builtin/windows-temp.json
-            rules/builtin/npm-cache.json
+            ${WAM_BUILTIN_RULE_FILES}
     )
 endif()
 
@@ -141,6 +153,11 @@ elseif(QT_VERSION VERSION_LESS 6.2)
 endif()
 
 qt_add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
+if(WIN32)
+    target_sources(${PROJECT_NAME} PRIVATE
+        "${CMAKE_SOURCE_DIR}/WindowsAppDataManager.rc"
+    )
+endif()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     WAM_VERSION="${WAM_VERSION}"
 )
@@ -184,6 +201,7 @@ if(QT_VERSION VERSION_GREATER_EQUAL 6.2)
             components/RiskBadge.qml
             components/StatTile.qml
             components/ThemedIcon.qml
+            components/ApplicationIcon.qml
             components/ApplicationRow.qml
             components/FilterComboBox.qml
             components/FocusAwareFlickable.qml

@@ -3,7 +3,9 @@
 #include "RulePathResolver.h"
 
 #include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QSet>
 #include <QStringList>
@@ -88,6 +90,15 @@ QStringList executablePathClaimKeys(const QString &path)
     return keys;
 }
 
+QStringList executablePathClaimKeys(const QStringList &paths)
+{
+    QStringList keys;
+    for (const QString &path : paths)
+        keys.append(executablePathClaimKeys(path));
+    keys.removeDuplicates();
+    return keys;
+}
+
 QString executablePathOwner(const QStringList &keys,
                             const QHash<QString, QString> &claims)
 {
@@ -158,7 +169,9 @@ RuleCatalog RuleCatalog::fromJsonDocuments(const QVector<RuleDocument> &document
         }
 
         const QStringList executablePathKeys = executablePathClaimKeys(
-                loadResult.rule->executablePath);
+                loadResult.rule->executablePaths.isEmpty()
+                        ? QStringList {loadResult.rule->executablePath}
+                        : loadResult.rule->executablePaths);
         const QString executableOwner = executablePathOwner(
                 executablePathKeys, executablePathClaims);
         if (!executableOwner.isEmpty()) {
@@ -193,20 +206,37 @@ const RuleCatalog &RuleCatalog::builtIn()
     static const RuleCatalog catalog = [] {
         initializeBuiltinRuleResources();
 
-        static const QStringList resourcePaths {
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/chrome.json"),
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/chromium.json"),
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/discord.json"),
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/vscode.json"),
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/jetbrains.json"),
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/windows-temp.json"),
-            QStringLiteral(":/windowsappdatamanager/rules/builtin/npm-cache.json")
-        };
-
+        const QString resourceDirectoryPath =
+                QStringLiteral(":/windowsappdatamanager/rules/builtin");
+        const QDir resourceDirectory(resourceDirectoryPath);
         QVector<RuleDocument> documents;
         QVector<RuleLoadIssue> resourceIssues;
-        documents.reserve(resourcePaths.size());
-        for (const QString &resourcePath : resourcePaths) {
+        if (!resourceDirectory.exists()
+                || !QFileInfo(resourceDirectoryPath).isReadable()) {
+            resourceIssues.append({
+                RuleIssueCode::ResourceUnavailable,
+                resourceDirectoryPath,
+                QStringLiteral("$"),
+                QStringLiteral("无法读取内置规则资源目录")
+            });
+        }
+
+        const QStringList resourceNames = resourceDirectory.entryList(
+                {QStringLiteral("*.json")},
+                QDir::Files,
+                QDir::Name | QDir::IgnoreCase);
+        if (resourceIssues.isEmpty() && resourceNames.isEmpty()) {
+            resourceIssues.append({
+                RuleIssueCode::ResourceUnavailable,
+                resourceDirectoryPath,
+                QStringLiteral("$"),
+                QStringLiteral("内置规则资源目录中没有 JSON 规则")
+            });
+        }
+
+        documents.reserve(resourceNames.size());
+        for (const QString &resourceName : resourceNames) {
+            const QString resourcePath = resourceDirectory.filePath(resourceName);
             QFile file(resourcePath);
             if (!file.open(QIODevice::ReadOnly)) {
                 resourceIssues.append({

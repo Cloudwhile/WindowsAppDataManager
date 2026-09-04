@@ -16,7 +16,8 @@
     "executableProductNames": ["Visual Studio Code"],
     "executableCompanyNames": ["Microsoft Corporation"],
     "executableOriginalFilenames": ["Code.exe"],
-    "authenticodePublishers": ["Microsoft Corporation"]
+    "authenticodePublishers": ["Microsoft Corporation"],
+    "runningProcessNames": ["Code.exe"]
   },
   "locations": [
     { "scope": "roaming", "path": "Code", "ownership": "exclusive" }
@@ -66,7 +67,7 @@
       "id": "workspace-storage",
       "path": "User/workspaceStorage",
       "category": "workspace",
-      "risk": "caution",
+      "risk": "high",
       "rebuildable": false,
       "impact": "可能丢失工作区界面状态、扩展状态或未同步的本地信息。"
     },
@@ -74,9 +75,89 @@
       "id": "global-storage",
       "path": "User/globalStorage",
       "category": "user-data",
-      "risk": "caution",
+      "risk": "protected",
       "rebuildable": false,
       "impact": "可能包含扩展和编辑器持久状态，不应自动处理。"
+    },
+    {
+      "id": "user-history",
+      "path": "User/History",
+      "category": "user-data",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含本地文件历史，未保存或未同步的版本可能无法恢复。"
+    },
+    {
+      "id": "user-settings",
+      "path": "User/settings.json",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含用户设置，默认禁止处理。"
+    },
+    {
+      "id": "user-keybindings",
+      "path": "User/keybindings.json",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含用户快捷键设置，默认禁止处理。"
+    },
+    {
+      "id": "user-snippets",
+      "path": "User/snippets",
+      "category": "user-data",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含用户代码片段，默认禁止处理。"
+    },
+    {
+      "id": "session-storage",
+      "path": "Session Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含编辑器会话状态，移除后可能丢失未同步状态。"
+    },
+    {
+      "id": "local-storage",
+      "path": "Local Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含编辑器和扩展的本地状态，移除后可能造成数据丢失。"
+    },
+    {
+      "id": "indexed-db",
+      "path": "IndexedDB",
+      "category": "database",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含编辑器或扩展数据库，移除后可能造成不可恢复的数据丢失。"
+    },
+    {
+      "id": "cookies",
+      "path": "Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能包含扩展登录会话，移除后可能导致退出登录。"
+    },
+    {
+      "id": "network-cookies",
+      "path": "Network/Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能包含扩展登录会话，移除后可能导致退出登录。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含编辑器级配置和加密数据相关状态，默认禁止处理。"
     }
   ]
 }

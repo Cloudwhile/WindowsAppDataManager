@@ -20,13 +20,27 @@ QString sourceName(EvidenceSource source)
     return QStringLiteral("未知来源");
 }
 
-QVector<const EvidenceInfo *> evidenceFor(const ApplicationInfo &application,
+const QVector<EvidenceInfo> &attributionEvidence(
+        const ApplicationInfo &application)
+{
+    return application.attribution.evidence.isEmpty()
+            ? application.evidence : application.attribution.evidence;
+}
+
+const QVector<EvidenceInfo> &installationEvidence(
+        const ApplicationInfo &application)
+{
+    return application.installation.evidence.isEmpty()
+            ? application.evidence : application.installation.evidence;
+}
+
+QVector<const EvidenceInfo *> evidenceFor(const QVector<EvidenceInfo> &evidence,
                                           EvidenceSource source)
 {
     QVector<const EvidenceInfo *> result;
-    for (const EvidenceInfo &evidence : application.evidence) {
-        if (evidence.source == source)
-            result.append(&evidence);
+    for (const EvidenceInfo &item : evidence) {
+        if (item.source == source)
+            result.append(&item);
     }
     return result;
 }
@@ -42,11 +56,60 @@ bool hasStatus(const QVector<const EvidenceInfo *> &items,
 bool hasCompleteAttributionEvidence(const ApplicationInfo &application,
                                     EvidenceSource source)
 {
-    const QVector<const EvidenceInfo *> items = evidenceFor(application, source);
+    const QVector<const EvidenceInfo *> items = evidenceFor(
+            attributionEvidence(application), source);
     return !items.isEmpty()
             && std::all_of(items.cbegin(), items.cend(), [](const auto *item) {
         return item->status == EvidenceStatus::Matched;
     });
+}
+
+bool hasUsableFolderEvidence(const ApplicationInfo &application,
+                             bool allowPartial)
+{
+    const QVector<EvidenceInfo> &evidence = attributionEvidence(application);
+    const QVector<const EvidenceInfo *> items = evidenceFor(
+            evidence, EvidenceSource::Folder);
+    if (items.isEmpty())
+        return false;
+
+    return std::all_of(items.cbegin(), items.cend(), [allowPartial](
+            const EvidenceInfo *item) {
+        if (item->status == EvidenceStatus::Matched)
+            return true;
+        return allowPartial && item->status == EvidenceStatus::Partial;
+    });
+}
+
+bool hasIndependentInferenceEvidence(const ApplicationInfo &application)
+{
+    const QVector<EvidenceInfo> &evidence = attributionEvidence(application);
+    int matchedSources = 0;
+    for (const EvidenceSource source : {EvidenceSource::Registry,
+                                        EvidenceSource::Appx,
+                                        EvidenceSource::Executable,
+                                        EvidenceSource::Publisher,
+                                        EvidenceSource::InstallPath}) {
+        const QVector<const EvidenceInfo *> items = evidenceFor(evidence, source);
+        const bool matched = std::any_of(
+                items.cbegin(), items.cend(), [](const EvidenceInfo *item) {
+            if (item->status != EvidenceStatus::Matched)
+                return false;
+
+            // CandidateGenerator 会从同一可执行文件的公司名或签名元数据
+            // 派生 Publisher 线索。它可以帮助解释结果，但不能在未知目录
+            // 的强推断中伪装成第二个独立来源。
+            if (item->source == EvidenceSource::Publisher) {
+                return !item->detail.contains(QStringLiteral("可执行文件公司名"))
+                        && !item->detail.contains(QStringLiteral("可执行文件元数据"));
+            }
+            return true;
+        });
+        if (matched) {
+            ++matchedSources;
+        }
+    }
+    return matchedSources >= 2;
 }
 
 void appendUnique(QStringList &values, const QString &value)
@@ -62,7 +125,8 @@ void evaluateNegativeSource(const ApplicationInfo &application,
                             QStringList &blockers,
                             int &negativeSourceCount)
 {
-    const QVector<const EvidenceInfo *> items = evidenceFor(application, source);
+    const QVector<const EvidenceInfo *> items = evidenceFor(
+            installationEvidence(application), source);
     if (items.isEmpty()) {
         if (required) {
             appendUnique(blockers,
@@ -122,20 +186,45 @@ OrphanAssessment OrphanDetector::assess(
     result.assessedAt = context.assessedAt.isValid()
             ? context.assessedAt.toUTC() : QDateTime::currentDateTimeUtc();
 
-    if (application.installState == InstallState::Installed) {
+    const bool hasInstallationAssessment = application.installation.confidence > 0
+            || !application.installation.evidence.isEmpty()
+            || application.installation.state != InstallationState::Unknown;
+    const bool installationConfirmed = hasInstallationAssessment
+            ? application.installation.state == InstallationState::Installed
+            : application.installState == InstallState::Installed;
+    if (installationConfirmed) {
         result.state = InstallState::Installed;
         result.summary = QStringLiteral("存在可信安装证据，不属于潜在残留候选。");
         return result;
     }
 
-    if (application.confidence < context.minimumAttributionConfidence) {
+    const bool hasAttributionAssessment = application.attribution.confidence > 0
+            || !application.attribution.evidence.isEmpty()
+            || application.attribution.state != AttributionState::Unknown;
+    const int attributionConfidence = hasAttributionAssessment
+            ? application.attribution.confidence : application.confidence;
+    if (attributionConfidence < context.minimumAttributionConfidence) {
         appendUnique(result.blockingReasons,
                      QStringLiteral("应用归属置信度不足"));
     }
-    if (!hasCompleteAttributionEvidence(application, EvidenceSource::Rule)
-            || !hasCompleteAttributionEvidence(application, EvidenceSource::Folder)) {
+    const bool strongInferredAttribution = hasAttributionAssessment
+            && application.attribution.state == AttributionState::StrongInferred;
+    if (hasAttributionAssessment
+            && application.attribution.state != AttributionState::Verified
+            && !strongInferredAttribution) {
         appendUnique(result.blockingReasons,
-                     QStringLiteral("缺少精确规则与目录归属证据"));
+                     QStringLiteral("应用归属未达到已验证或强推断级别"));
+    }
+    const bool attributionEvidenceValid = strongInferredAttribution
+            ? hasUsableFolderEvidence(application, true)
+                    && hasIndependentInferenceEvidence(application)
+            : hasCompleteAttributionEvidence(application, EvidenceSource::Rule)
+                    && hasUsableFolderEvidence(application, false);
+    if (!attributionEvidenceValid) {
+        appendUnique(result.blockingReasons,
+                     strongInferredAttribution
+                             ? QStringLiteral("强推断归属缺少完整的多源目录证据")
+                             : QStringLiteral("缺少精确规则与目录归属证据"));
     }
     if (!context.exclusiveLocations) {
         appendUnique(result.blockingReasons,
@@ -186,7 +275,7 @@ OrphanAssessment OrphanDetector::assess(
 
     result.state = InstallState::PotentialOrphan;
     int confidence = 80;
-    if (application.confidence >= 85)
+    if (attributionConfidence >= 85)
         confidence += 5;
     if (negativeSourceCount >= 4)
         confidence += 5;

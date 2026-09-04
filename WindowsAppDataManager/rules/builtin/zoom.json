@@ -1,0 +1,38 @@
+{
+  "$schema": "../schema.json",
+  "id": "zoom",
+  "version": "1",
+  "name": "Zoom Workplace",
+  "publisher": "Zoom Video Communications, Inc.",
+  "applicationCategory": "通讯",
+  "executablePath": "%APPDATA%/Zoom/bin/Zoom.exe",
+  "installPath": "%APPDATA%/Zoom",
+  "identifiers": {
+    "registryDisplayNames": ["Zoom"],
+    "executableProductNames": ["Zoom"],
+    "executableCompanyNames": ["Zoom Video Communications, Inc."],
+    "executableOriginalFilenames": ["Zoom.exe"],
+    "runningProcessNames": ["Zoom.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Zoom", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧会议诊断记录会被移除，Zoom 仍会生成新日志。"
+    },
+    {
+      "id": "data",
+      "path": "data",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能包含会议和账号会话状态，移除后可能需要重新登录。"
+    }
+  ]
+}

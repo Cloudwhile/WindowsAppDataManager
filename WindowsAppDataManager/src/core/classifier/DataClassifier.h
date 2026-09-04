@@ -36,7 +36,7 @@ private:
             const QString &relativePath) const;
 
     QVector<RuleEntry> m_applicationRules;
-    QStringList m_normalizedRulePaths;
+    QVector<QStringList> m_normalizedRulePaths;
     QString m_ruleSource;
 };
 

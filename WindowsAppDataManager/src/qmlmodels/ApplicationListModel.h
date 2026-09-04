@@ -32,6 +32,7 @@ public:
         AppIdRole = Qt::UserRole + 1,
         AppNameRole,
         ShortNameRole,
+        IconSourceRole,
         PublisherRole,
         CategoryRole,
         LocationRole,
@@ -40,6 +41,10 @@ public:
         InstallStateRole,
         InstallStateTextRole,
         ConfidenceRole,
+        AttributionStateRole,
+        AttributionConfidenceRole,
+        InstallationStateRole,
+        InstallationConfidenceRole,
         SizeTextRole,
         SizeValueRole,
         FileCountRole,
@@ -55,7 +60,9 @@ public:
         OrphanSummaryRole,
         OrphanBlockingReasonsRole,
         DataGroupsRole,
-        EvidenceRole
+        EvidenceRole,
+        OwnerKindRole,
+        OwnerKindTextRole
     };
     Q_ENUM(Role)
 

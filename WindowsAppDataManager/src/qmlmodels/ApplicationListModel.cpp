@@ -1,7 +1,17 @@
 #include "ApplicationListModel.h"
 
+#include <QCryptographicHash>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileIconProvider>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QIcon>
 #include <QLocale>
 #include <QHash>
+#include <QPixmap>
+#include <QStandardPaths>
+#include <QUrl>
 
 #include <algorithm>
 
@@ -45,6 +55,8 @@ bool applicationOccupancyBefore(const ApplicationInfo &left,
     return left.id < right.id;
 }
 
+int attributionConfidence(const ApplicationInfo &application);
+
 bool summaryValuesDiffer(const ApplicationInfo &left,
                          const ApplicationInfo &right)
 {
@@ -52,9 +64,23 @@ bool summaryValuesDiffer(const ApplicationInfo &left,
             || left.reclaimableSize != right.reclaimableSize
             || left.fileCount != right.fileCount
             || left.protectedSize != right.protectedSize
-            || (left.confidence >= 50) != (right.confidence >= 50)
+            || (attributionConfidence(left) >= 50)
+                    != (attributionConfidence(right) >= 50)
             || (left.installState == InstallState::PotentialOrphan)
                     != (right.installState == InstallState::PotentialOrphan);
+}
+
+bool hasAttributionAssessment(const ApplicationInfo &application)
+{
+    return application.attribution.confidence > 0
+            || !application.attribution.evidence.isEmpty()
+            || application.attribution.state != AttributionState::Unknown;
+}
+
+int attributionConfidence(const ApplicationInfo &application)
+{
+    return hasAttributionAssessment(application)
+            ? application.attribution.confidence : application.confidence;
 }
 
 QString shortName(const QString &name)
@@ -63,6 +89,44 @@ QString shortName(const QString &name)
     if (words.size() >= 2)
         return words[0].left(1).toUpper() + words[1].left(1).toUpper();
     return name.left(name.size() > 1 ? 2 : 1).toUpper();
+}
+
+QUrl applicationIconSource(const ApplicationInfo &application)
+{
+    const QString executablePath = application.executablePath;
+    if (executablePath.isEmpty()
+            || qobject_cast<QGuiApplication *>(QCoreApplication::instance()) == nullptr)
+        return {};
+
+    const QFileInfo executableInfo(executablePath);
+    if (!executableInfo.isFile() || !executableInfo.isReadable())
+        return {};
+
+    const QString cacheBase = QStandardPaths::writableLocation(
+            QStandardPaths::CacheLocation);
+    if (cacheBase.isEmpty())
+        return {};
+    const QString cacheDirectory = QDir(cacheBase).filePath(QStringLiteral("icons"));
+    if (!QDir().mkpath(cacheDirectory))
+        return {};
+
+    const QString cacheKey = executableInfo.absoluteFilePath()
+            + QLatin1Char('|')
+            + QString::number(executableInfo.size())
+            + QLatin1Char('|')
+            + QString::number(executableInfo.lastModified().toMSecsSinceEpoch());
+    const QString cacheName = QString::fromLatin1(
+            QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Sha1).toHex())
+            + QStringLiteral(".png");
+    const QString cachePath = QDir(cacheDirectory).filePath(cacheName);
+    if (!QFileInfo::exists(cachePath)) {
+        const QIcon icon = QFileIconProvider().icon(executableInfo);
+        const QPixmap pixmap = icon.pixmap(QSize(32, 32));
+        if (pixmap.isNull() || !pixmap.save(cachePath, "PNG"))
+            return {};
+    }
+
+    return QUrl::fromLocalFile(cachePath);
 }
 
 QString modifiedText(const QDateTime &modified)
@@ -101,6 +165,19 @@ QString installStateText(InstallState state)
     case InstallState::Unknown: return QStringLiteral("状态未知");
     }
     return QStringLiteral("状态未知");
+}
+
+QString ownerKindText(OwnerKind ownerKind)
+{
+    switch (ownerKind) {
+    case OwnerKind::Application: return QStringLiteral("应用");
+    case OwnerKind::Runtime: return QStringLiteral("运行时");
+    case OwnerKind::PackageManager: return QStringLiteral("包管理器");
+    case OwnerKind::Vendor: return QStringLiteral("厂商命名空间");
+    case OwnerKind::System: return QStringLiteral("系统");
+    case OwnerKind::Unknown: return QStringLiteral("未知");
+    }
+    return QStringLiteral("未知");
 }
 
 QString categoryText(DataCategory category)
@@ -231,6 +308,7 @@ QVariant ApplicationListModel::data(const QModelIndex &index, int role) const
     case AppIdRole: return application.id;
     case AppNameRole: return application.name;
     case ShortNameRole: return shortName(application.name);
+    case IconSourceRole: return applicationIconSource(application);
     case PublisherRole: return application.publisher;
     case CategoryRole: return application.category;
     case LocationRole: return application.location;
@@ -239,6 +317,10 @@ QVariant ApplicationListModel::data(const QModelIndex &index, int role) const
     case InstallStateRole: return static_cast<int>(application.installState);
     case InstallStateTextRole: return installStateText(application.installState);
     case ConfidenceRole: return application.confidence;
+    case AttributionStateRole: return static_cast<int>(application.attribution.state);
+    case AttributionConfidenceRole: return application.attribution.confidence;
+    case InstallationStateRole: return static_cast<int>(application.installation.state);
+    case InstallationConfidenceRole: return application.installation.confidence;
     case SizeTextRole: return formatSize(application.totalSize);
     case SizeValueRole: return static_cast<double>(application.totalSize);
     case FileCountRole: return formatCount(application.fileCount);
@@ -256,6 +338,8 @@ QVariant ApplicationListModel::data(const QModelIndex &index, int role) const
         return application.orphanAssessment.blockingReasons;
     case DataGroupsRole: return groupMaps(application);
     case EvidenceRole: return evidenceMaps(application);
+    case OwnerKindRole: return static_cast<int>(application.ownerKind);
+    case OwnerKindTextRole: return ownerKindText(application.ownerKind);
     default: return {};
     }
 }
@@ -264,10 +348,16 @@ QHash<int, QByteArray> ApplicationListModel::roleNames() const
 {
     return {
         {AppIdRole, "appId"}, {AppNameRole, "appName"}, {ShortNameRole, "shortName"},
+        {IconSourceRole, "iconSource"},
         {PublisherRole, "publisher"}, {CategoryRole, "category"}, {LocationRole, "location"},
         {ExecutablePathRole, "executablePath"}, {InstallPathRole, "installPath"},
         {InstallStateRole, "installState"}, {InstallStateTextRole, "installStateText"},
-        {ConfidenceRole, "confidence"}, {SizeTextRole, "sizeText"}, {SizeValueRole, "sizeValue"},
+        {ConfidenceRole, "confidence"},
+        {AttributionStateRole, "attributionState"},
+        {AttributionConfidenceRole, "attributionConfidence"},
+        {InstallationStateRole, "installationState"},
+        {InstallationConfidenceRole, "installationConfidence"},
+        {SizeTextRole, "sizeText"}, {SizeValueRole, "sizeValue"},
         {FileCountRole, "fileCount"}, {ModifiedRole, "modified"}, {RiskTextRole, "riskText"},
         {RiskLevelRole, "riskLevel"}, {ReclaimableTextRole, "reclaimableText"},
         {ProtectedSizeTextRole, "protectedSizeText"}, {UnknownSizeTextRole, "unknownSizeText"},
@@ -276,7 +366,8 @@ QHash<int, QByteArray> ApplicationListModel::roleNames() const
         {OrphanSummaryRole, "orphanSummary"},
         {OrphanBlockingReasonsRole, "orphanBlockingReasons"},
         {DataGroupsRole, "dataGroups"},
-        {EvidenceRole, "evidence"}
+        {EvidenceRole, "evidence"},
+        {OwnerKindRole, "ownerKind"}, {OwnerKindTextRole, "ownerKindText"}
     };
 }
 
@@ -452,9 +543,12 @@ QVariantMap ApplicationListModel::applicationSummaryMap(
     map.insert(QStringLiteral("appId"), application.id);
     map.insert(QStringLiteral("appName"), application.name);
     map.insert(QStringLiteral("shortName"), shortName(application.name));
+    map.insert(QStringLiteral("iconSource"), applicationIconSource(application));
     map.insert(QStringLiteral("publisher"), application.publisher);
     map.insert(QStringLiteral("category"), application.category);
     map.insert(QStringLiteral("location"), application.location);
+    map.insert(QStringLiteral("ownerKind"), static_cast<int>(application.ownerKind));
+    map.insert(QStringLiteral("ownerKindText"), ownerKindText(application.ownerKind));
     map.insert(QStringLiteral("sizeText"), formatSize(application.totalSize));
     map.insert(QStringLiteral("sizeValue"), static_cast<double>(application.totalSize));
     map.insert(QStringLiteral("fileCount"), formatCount(application.fileCount));
@@ -474,6 +568,14 @@ QVariantMap ApplicationListModel::applicationMap(
     map.insert(QStringLiteral("installState"), static_cast<int>(application.installState));
     map.insert(QStringLiteral("installStateText"), installStateText(application.installState));
     map.insert(QStringLiteral("confidence"), application.confidence);
+    map.insert(QStringLiteral("attributionState"),
+               static_cast<int>(application.attribution.state));
+    map.insert(QStringLiteral("attributionConfidence"),
+               application.attribution.confidence);
+    map.insert(QStringLiteral("installationState"),
+               static_cast<int>(application.installation.state));
+    map.insert(QStringLiteral("installationConfidence"),
+               application.installation.confidence);
     map.insert(QStringLiteral("reclaimableText"), formatSize(application.reclaimableSize));
     map.insert(QStringLiteral("protectedSizeText"), formatSize(application.protectedSize));
     map.insert(QStringLiteral("unknownSizeText"), formatSize(application.unknownSize));
@@ -526,7 +628,7 @@ void ApplicationListModel::addToSummary(const ApplicationInfo &application)
     m_totalFileCount += application.fileCount;
     m_protectedSize += application.protectedSize;
     m_maximumSize = std::max(m_maximumSize, application.totalSize);
-    if (application.confidence >= 50)
+    if (attributionConfidence(application) >= 50)
         ++m_recognizedCount;
     if (application.installState == InstallState::PotentialOrphan)
         ++m_potentialOrphanCount;
@@ -546,8 +648,8 @@ void ApplicationListModel::replaceInSummary(
     m_totalFileCount += replacement.fileCount;
     m_protectedSize -= previous.protectedSize;
     m_protectedSize += replacement.protectedSize;
-    m_recognizedCount += static_cast<int>(replacement.confidence >= 50)
-            - static_cast<int>(previous.confidence >= 50);
+    m_recognizedCount += static_cast<int>(attributionConfidence(replacement) >= 50)
+            - static_cast<int>(attributionConfidence(previous) >= 50);
     m_potentialOrphanCount += static_cast<int>(
             replacement.installState == InstallState::PotentialOrphan)
             - static_cast<int>(

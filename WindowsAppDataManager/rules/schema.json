@@ -10,8 +10,6 @@
     "name",
     "publisher",
     "applicationCategory",
-    "executablePath",
-    "installPath",
     "locations",
     "entries"
   ],
@@ -24,6 +22,23 @@
     "applicationCategory": { "type": "string", "minLength": 1 },
     "executablePath": { "$ref": "#/$defs/absoluteRulePath" },
     "installPath": { "$ref": "#/$defs/absoluteRulePath" },
+    "executables": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": { "path": { "$ref": "#/$defs/absoluteRulePath" } }
+      }
+    },
+    "installPaths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/absoluteRulePath" }
+    },
     "identifiers": {
       "type": "object",
       "additionalProperties": false,
@@ -86,6 +101,12 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "runningProcessNames": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/processName" }
         }
       }
     },
@@ -98,8 +119,12 @@
         "required": ["scope", "path"],
         "properties": {
           "scope": { "enum": ["local", "roaming", "locallow"] },
-          "path": { "type": "string", "minLength": 1 },
-          "ownership": { "enum": ["shared", "exclusive"] }
+          "path": { "$ref": "#/$defs/relativeLocationPath" },
+          "ownership": { "enum": ["shared", "exclusive"] },
+          "role": {
+            "enum": ["data", "config", "cache", "shared-data",
+                     "install-payload", "vendor-namespace", "mixed"]
+          }
         }
       }
     },
@@ -109,10 +134,16 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "path", "category", "risk", "rebuildable", "impact"],
+        "required": ["id", "category", "risk", "rebuildable", "impact"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-          "path": { "type": "string", "minLength": 1 },
+          "path": { "$ref": "#/$defs/relativeEntryPath" },
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/relativeEntryPath" }
+          },
           "category": {
             "enum": [
               "unknown", "cache", "log", "temp", "crash-dump", "config",
@@ -127,11 +158,64 @@
               { "const": "unknown" }
             ]
           },
-          "impact": { "type": "string", "minLength": 1 }
-        }
+          "impact": { "type": "string", "minLength": 1, "pattern": "\\S" }
+        },
+        "allOf": [
+          {
+            "anyOf": [
+              { "required": ["path"] },
+              { "required": ["paths"] }
+            ]
+          },
+          {
+            "if": {
+              "properties": { "risk": { "const": "safe" } },
+              "required": ["risk"]
+            },
+            "then": {
+              "properties": {
+                "category": { "enum": ["cache", "temp", "downloaded-resource"] },
+                "rebuildable": { "const": true },
+                "path": { "not": { "const": "." } }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "category": {
+                  "enum": [
+                    "database", "session", "cookie", "credential", "user-data",
+                    "workspace", "save-game"
+                  ]
+                }
+              },
+              "required": ["category"]
+            },
+            "then": {
+              "properties": {
+                "risk": { "enum": ["caution", "high", "protected", "unknown"] }
+              }
+            }
+          }
+        ]
       }
     }
   },
+  "allOf": [
+    {
+      "anyOf": [
+        { "required": ["executablePath"] },
+        { "required": ["executables"] }
+      ]
+    },
+    {
+      "anyOf": [
+        { "required": ["installPath"] },
+        { "required": ["installPaths"] }
+      ]
+    }
+  ],
   "$defs": {
     "absoluteRulePath": {
       "type": "string",
@@ -147,6 +231,28 @@
       "not": {
         "pattern": "(?:^|[\\\\/])\\.{1,2}(?:[\\\\/]|$)"
       }
+    },
+    "relativeLocationPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\s)(?!.*\\s$)(?![\\\\/])(?!.*[\\\\/]$)(?!.*[<>:\"|?*%\\u0000-\\u001F])(?!.*(?:^|[\\\\/])\\.{1,2}(?:[\\\\/]|$))(?!.*[ .](?:[\\\\/]|$)).+$",
+      "$comment": "运行时还会拒绝 DOS 保留设备名，并按 Windows 大小写不敏感规则检查冲突。"
+    },
+    "relativeEntryPath": {
+      "oneOf": [
+        { "const": "." },
+        { "$ref": "#/$defs/relativeLocationPath" },
+        { "$ref": "#/$defs/relativeGlobPath" }
+      ]
+    },
+    "relativeGlobPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!\\s)(?!.*\\s$)(?![\\/])(?!.*[\\/]$)(?!.*[<>:\"|?%\\u0000-\\u001F])(?!.*(?:^|[\\/])\\.{1,2}(?:[\\/]|$)).+$"
+    },
+    "processName": {
+      "type": "string",
+      "pattern": "^(?!\\s)(?!.*\\s$)(?!.*[\\\\/:<>\"|?*\\u0000-\\u001F])(?=.+\\.[Ee][Xx][Ee]$).+$"
     }
   }
 }

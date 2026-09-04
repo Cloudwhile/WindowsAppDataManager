@@ -113,6 +113,10 @@ QJsonObject ruleObject(const std::optional<QString> &ownership = std::nullopt)
          QStringLiteral("C:/WAM_TEST_MISSING/sample.exe")},
         {QStringLiteral("installPath"),
          QStringLiteral("C:/WAM_TEST_MISSING/sample")},
+        {QStringLiteral("identifiers"), QJsonObject {
+             {QStringLiteral("runningProcessNames"),
+              QJsonArray {QStringLiteral("sample.exe")}}
+         }},
         {QStringLiteral("locations"), QJsonArray {location}},
         {QStringLiteral("entries"), QJsonArray {
              QJsonObject {
@@ -179,7 +183,10 @@ class OrphanDetectionTest final : public QObject {
 
 private slots:
     void completeNegativeEvidenceProducesPotentialOrphan();
+    void strongInferredAttributionCanProducePotentialOrphan();
+    void derivedPublisherDoesNotCountAsIndependentEvidence();
     void installedApplicationRemainsInstalled();
+    void assessmentsOverrideCompatibilityFields();
     void matchedRequiredEvidenceBlocks_data();
     void matchedRequiredEvidenceBlocks();
     void optionalSourceUncertaintyBlocks_data();
@@ -219,6 +226,69 @@ void OrphanDetectionTest::completeNegativeEvidenceProducesPotentialOrphan()
     QCOMPARE(result.assessedAt, assessedAt());
 }
 
+void OrphanDetectionTest::strongInferredAttributionCanProducePotentialOrphan()
+{
+    wam::ApplicationInfo application = orphanCandidate(false);
+    application.attribution = {
+        wam::AttributionState::StrongInferred,
+        86,
+        {
+            evidence(wam::EvidenceSource::Folder, wam::EvidenceStatus::Partial),
+            evidence(wam::EvidenceSource::Registry, wam::EvidenceStatus::Matched),
+            evidence(wam::EvidenceSource::InstallPath, wam::EvidenceStatus::Matched)
+        }
+    };
+    application.installation = {
+        wam::InstallationState::NotObserved,
+        82,
+        {
+            evidence(wam::EvidenceSource::Executable, wam::EvidenceStatus::NotFound),
+            evidence(wam::EvidenceSource::InstallPath, wam::EvidenceStatus::NotFound),
+            evidence(wam::EvidenceSource::RunningProcess, wam::EvidenceStatus::NotFound)
+        }
+    };
+    application.installState = wam::InstallState::Unknown;
+
+    const wam::OrphanAssessment result = wam::core::OrphanDetector::assess(
+            application, detectionContext());
+
+    QCOMPARE(result.state, wam::InstallState::PotentialOrphan);
+    QVERIFY(result.blockingReasons.isEmpty());
+    QVERIFY(result.confidence >= 80);
+}
+
+void OrphanDetectionTest::derivedPublisherDoesNotCountAsIndependentEvidence()
+{
+    wam::ApplicationInfo application = orphanCandidate(false);
+    application.attribution = {
+        wam::AttributionState::StrongInferred,
+        86,
+        {
+            evidence(wam::EvidenceSource::Folder, wam::EvidenceStatus::Partial),
+            evidence(wam::EvidenceSource::Executable, wam::EvidenceStatus::Matched),
+            {wam::EvidenceSource::Publisher, wam::EvidenceStatus::Matched,
+             QStringLiteral("可执行文件公司名提供发布者线索")}
+        }
+    };
+    application.installation = {
+        wam::InstallationState::NotObserved,
+        82,
+        {
+            evidence(wam::EvidenceSource::Executable, wam::EvidenceStatus::NotFound),
+            evidence(wam::EvidenceSource::InstallPath, wam::EvidenceStatus::NotFound),
+            evidence(wam::EvidenceSource::RunningProcess, wam::EvidenceStatus::NotFound)
+        }
+    };
+    application.installState = wam::InstallState::Unknown;
+
+    const wam::OrphanAssessment result = wam::core::OrphanDetector::assess(
+            application, detectionContext());
+
+    QCOMPARE(result.state, wam::InstallState::Unknown);
+    QVERIFY(result.blockingReasons.contains(
+            QStringLiteral("强推断归属缺少完整的多源目录证据")));
+}
+
 void OrphanDetectionTest::installedApplicationRemainsInstalled()
 {
     wam::ApplicationInfo application;
@@ -229,6 +299,37 @@ void OrphanDetectionTest::installedApplicationRemainsInstalled()
 
     QVERIFY(result.evaluated);
     QCOMPARE(result.state, wam::InstallState::Installed);
+    QVERIFY(result.blockingReasons.isEmpty());
+}
+
+void OrphanDetectionTest::assessmentsOverrideCompatibilityFields()
+{
+    wam::ApplicationInfo application = orphanCandidate(false);
+    application.installState = wam::InstallState::Installed;
+    setEvidenceStatus(application, wam::EvidenceSource::Executable,
+                      wam::EvidenceStatus::Matched);
+    application.attribution = {
+        wam::AttributionState::Verified,
+        92,
+        {
+            evidence(wam::EvidenceSource::Rule, wam::EvidenceStatus::Matched),
+            evidence(wam::EvidenceSource::Folder, wam::EvidenceStatus::Matched)
+        }
+    };
+    application.installation = {
+        wam::InstallationState::NotObserved,
+        88,
+        {
+            evidence(wam::EvidenceSource::Executable, wam::EvidenceStatus::NotFound),
+            evidence(wam::EvidenceSource::InstallPath, wam::EvidenceStatus::NotFound),
+            evidence(wam::EvidenceSource::RunningProcess, wam::EvidenceStatus::NotFound)
+        }
+    };
+
+    const wam::OrphanAssessment result = wam::core::OrphanDetector::assess(
+            application, detectionContext());
+
+    QCOMPARE(result.state, wam::InstallState::PotentialOrphan);
     QVERIFY(result.blockingReasons.isEmpty());
 }
 

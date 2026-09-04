@@ -1,0 +1,70 @@
+{
+  "$schema": "../schema.json",
+  "id": "notion",
+  "version": "1",
+  "name": "Notion",
+  "publisher": "Notion Labs, Inc.",
+  "applicationCategory": "效率工具",
+  "executablePath": "%LOCALAPPDATA%/Programs/Notion/Notion.exe",
+  "installPath": "%LOCALAPPDATA%/Programs/Notion",
+  "identifiers": {
+    "registryDisplayNames": ["Notion"],
+    "executableProductNames": ["Notion"],
+    "executableCompanyNames": ["Notion Labs, Inc."],
+    "executableOriginalFilenames": ["Notion.exe"],
+    "runningProcessNames": ["Notion.exe"]
+  },
+  "locations": [
+    { "scope": "roaming", "path": "Notion", "ownership": "exclusive" }
+  ],
+  "entries": [
+    {
+      "id": "cache",
+      "path": "Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "页面资源缓存会在 Notion 再次使用时重新下载。"
+    },
+    {
+      "id": "code-cache",
+      "path": "Code Cache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "脚本缓存会在后续启动和使用过程中重新生成。"
+    },
+    {
+      "id": "gpu-cache",
+      "path": "GPUCache",
+      "category": "cache",
+      "risk": "safe",
+      "rebuildable": true,
+      "impact": "图形缓存会重新生成，首次显示内容可能稍慢。"
+    },
+    {
+      "id": "logs",
+      "path": "logs",
+      "category": "log",
+      "risk": "low",
+      "rebuildable": true,
+      "impact": "旧诊断记录会被移除，Notion 仍会生成新日志。"
+    },
+    {
+      "id": "indexed-db",
+      "path": "IndexedDB",
+      "category": "database",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "可能包含离线页面和同步状态，移除后可能造成数据丢失。"
+    },
+    {
+      "id": "local-storage",
+      "path": "Local Storage",
+      "category": "user-data",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "可能包含未同步的页面和账户状态，默认禁止处理。"
+    }
+  ]
+}

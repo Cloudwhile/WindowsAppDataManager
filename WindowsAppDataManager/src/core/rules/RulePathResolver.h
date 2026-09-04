@@ -22,6 +22,10 @@ struct RulePathResolution {
 };
 
 [[nodiscard]] bool validateRulePath(const QString &value, QString *errorMessage = nullptr);
+[[nodiscard]] bool validateRelativeRulePath(const QString &value,
+                                            bool allowRoot,
+                                            QString *errorMessage = nullptr,
+                                            bool allowGlob = false);
 [[nodiscard]] RulePathResolution resolveRulePath(QString value);
 [[nodiscard]] QString normalizedRulePathClaim(const QString &value);
 [[nodiscard]] QString expandRulePath(QString value);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ApplicationInfo.h"
+#include "RuleMetadata.h"
 
 #include <QString>
 #include <QStringList>
@@ -19,6 +20,16 @@ enum class RuleLocationOwnership {
     Exclusive
 };
 
+enum class RuleLocationRole {
+    Data,
+    Config,
+    Cache,
+    SharedData,
+    InstallPayload,
+    VendorNamespace,
+    Mixed
+};
+
 enum class RuleIssueCode {
     JsonParse,
     InvalidRoot,
@@ -35,6 +46,7 @@ struct RuleLocation {
     RuleScope scope = RuleScope::Local;
     QString relativePath;
     RuleLocationOwnership ownership = RuleLocationOwnership::Shared;
+    RuleLocationRole role = RuleLocationRole::Data;
 };
 
 struct RuleEntry {
@@ -44,9 +56,11 @@ struct RuleEntry {
     RiskLevel risk = RiskLevel::Unknown;
     RebuildableState rebuildable = RebuildableState::Unknown;
     QString impact;
+    QStringList paths;
 };
 
 struct RuleIdentifiers {
+    QStringList runningProcessNames;
     QStringList registryDisplayNames;
     QStringList registryPublishers;
     QStringList appxPackageNames;
@@ -66,9 +80,13 @@ struct ApplicationRule {
     QString executablePath;
     QString installPath;
     QString sourceName;
+    RuleOrigin origin = RuleOrigin::BuiltIn;
+    RuleTrustLevel trustLevel = RuleTrustLevel::Verified;
     RuleIdentifiers identifiers;
     QVector<RuleLocation> locations;
     QVector<RuleEntry> entries;
+    QStringList executablePaths;
+    QStringList installPaths;
 };
 
 struct RuleLoadIssue {

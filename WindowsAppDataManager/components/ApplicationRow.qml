@@ -32,19 +32,12 @@ Item {
         anchors.rightMargin: 12
         spacing: 10
 
-        Rectangle {
+        ApplicationIcon {
             Layout.preferredWidth: 26
             Layout.preferredHeight: 26
-            radius: 6
-            color: Theme.applicationAccent(row.rowData.accentIndex)
-
-            Text {
-                anchors.centerIn: parent
-                text: row.rowData.shortName
-                color: Theme.applicationAccentText(row.rowData.accentIndex)
-                font.pixelSize: row.rowData.shortName.length > 2 ? 8 : 11
-                font.weight: Font.Bold
-            }
+            iconSource: row.rowData.iconSource || ""
+            shortName: row.rowData.shortName
+            accentIndex: row.rowData.accentIndex
         }
 
         Text {

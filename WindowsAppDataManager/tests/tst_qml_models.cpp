@@ -89,6 +89,9 @@ void QmlModelsTest::applicationListFindsStableIdsAndExposesAccentIndices()
     QCOMPARE(applications.roleNames().value(
                      wam::qmlmodels::ApplicationListModel::AccentIndexRole),
              QByteArray("accentIndex"));
+    QCOMPARE(applications.roleNames().value(
+                     wam::qmlmodels::ApplicationListModel::IconSourceRole),
+             QByteArray("iconSource"));
     for (int row = 0; row < applications.count(); ++row) {
         const QModelIndex index = applications.index(row, 0);
         const QVariant accentIndex = applications.data(
@@ -101,6 +104,12 @@ void QmlModelsTest::applicationListFindsStableIdsAndExposesAccentIndices()
                 QStringLiteral("accentIndex"));
         QCOMPARE(mappedAccentIndex.metaType(), QMetaType::fromType<int>());
         QCOMPARE(mappedAccentIndex, accentIndex);
+
+        const QVariant iconSource = applications.data(
+                index, wam::qmlmodels::ApplicationListModel::IconSourceRole);
+        QVERIFY(iconSource.toUrl().isEmpty());
+        QVERIFY(applications.get(row).value(QStringLiteral("iconSource"))
+                        .toUrl().isEmpty());
     }
 
     applications.setApplications({
@@ -293,7 +302,10 @@ void QmlModelsTest::applicationListResolvesStableSelectionAfterSortedMutation()
 
 void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
 {
+    using wam::AttributionState;
     using wam::InstallState;
+    using wam::InstallationState;
+    using wam::OwnerKind;
     using wam::RiskLevel;
 
     wam::ApplicationInfo candidate = application(
@@ -301,6 +313,9 @@ void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
             QStringLiteral("Vendor"), QStringLiteral("工具"), 120,
             RiskLevel::Caution, InstallState::PotentialOrphan);
     candidate.confidence = 91;
+    candidate.attribution = {AttributionState::Verified, 91, {}};
+    candidate.installation = {InstallationState::Installed, 84, {}};
+    candidate.ownerKind = OwnerKind::PackageManager;
     candidate.summary = QStringLiteral("应用归属证据摘要");
     candidate.orphanAssessment.state = InstallState::PotentialOrphan;
     candidate.orphanAssessment.confidence = 86;
@@ -312,6 +327,8 @@ void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
             QStringLiteral("Vendor"), QStringLiteral("工具"), 80,
             RiskLevel::Unknown, InstallState::Unknown);
     blocked.confidence = 74;
+    blocked.attribution = {AttributionState::StrongInferred, 74, {}};
+    blocked.installation = {InstallationState::NotObserved, 79, {}};
     blocked.summary = QStringLiteral("目录归属仍需确认");
     blocked.orphanAssessment.state = InstallState::Unknown;
     blocked.orphanAssessment.confidence = 0;
@@ -327,6 +344,8 @@ void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
             QStringLiteral("Vendor"), QStringLiteral("工具"), 40,
             RiskLevel::Low, InstallState::Installed);
     installed.confidence = 97;
+    installed.attribution = {AttributionState::Verified, 97, {}};
+    installed.installation = {InstallationState::Installed, 95, {}};
     installed.orphanAssessment.state = InstallState::Installed;
     installed.orphanAssessment.summary = QStringLiteral("存在可信安装证据");
     installed.orphanAssessment.evaluated = true;
@@ -344,6 +363,24 @@ void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
     QCOMPARE(roles.value(
                      wam::qmlmodels::ApplicationListModel::OrphanBlockingReasonsRole),
              QByteArray("orphanBlockingReasons"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::AttributionStateRole),
+             QByteArray("attributionState"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::AttributionConfidenceRole),
+             QByteArray("attributionConfidence"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::InstallationStateRole),
+             QByteArray("installationState"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::InstallationConfidenceRole),
+             QByteArray("installationConfidence"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::OwnerKindRole),
+             QByteArray("ownerKind"));
+    QCOMPARE(roles.value(
+                     wam::qmlmodels::ApplicationListModel::OwnerKindTextRole),
+             QByteArray("ownerKindText"));
 
     const int candidateIndex = applications.indexOfId(QStringLiteral("candidate"));
     const int blockedIndex = applications.indexOfId(QStringLiteral("blocked"));
@@ -355,6 +392,22 @@ void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
                      candidateModelIndex,
                      wam::qmlmodels::ApplicationListModel::ConfidenceRole).toInt(),
              91);
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::AttributionStateRole).toInt(),
+             static_cast<int>(AttributionState::Verified));
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::AttributionConfidenceRole).toInt(),
+             91);
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::InstallationStateRole).toInt(),
+             static_cast<int>(InstallationState::Installed));
+    QCOMPARE(applications.data(
+                     candidateModelIndex,
+                     wam::qmlmodels::ApplicationListModel::InstallationConfidenceRole).toInt(),
+             84);
     QCOMPARE(applications.data(
                      candidateModelIndex,
                      wam::qmlmodels::ApplicationListModel::OrphanConfidenceRole).toInt(),
@@ -370,6 +423,16 @@ void QmlModelsTest::applicationListExposesIndependentOrphanAssessment()
 
     const QVariantMap candidateMap = applications.get(candidateIndex);
     QCOMPARE(candidateMap.value(QStringLiteral("confidence")).toInt(), 91);
+    QCOMPARE(candidateMap.value(QStringLiteral("attributionState")).toInt(),
+             static_cast<int>(AttributionState::Verified));
+    QCOMPARE(candidateMap.value(QStringLiteral("attributionConfidence")).toInt(), 91);
+    QCOMPARE(candidateMap.value(QStringLiteral("installationState")).toInt(),
+             static_cast<int>(InstallationState::Installed));
+    QCOMPARE(candidateMap.value(QStringLiteral("installationConfidence")).toInt(), 84);
+    QCOMPARE(candidateMap.value(QStringLiteral("ownerKind")).toInt(),
+             static_cast<int>(OwnerKind::PackageManager));
+    QCOMPARE(candidateMap.value(QStringLiteral("ownerKindText")).toString(),
+             QStringLiteral("包管理器"));
     QCOMPARE(candidateMap.value(QStringLiteral("orphanConfidence")).toInt(), 86);
     QCOMPARE(candidateMap.value(QStringLiteral("summary")).toString(),
              QStringLiteral("应用归属证据摘要"));

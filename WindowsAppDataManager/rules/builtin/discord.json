@@ -11,11 +11,11 @@
     "registryDisplayNames": ["Discord"],
     "executableProductNames": ["Update"],
     "executableCompanyNames": ["Discord Inc."],
-    "executableOriginalFilenames": ["Update.exe"]
+    "executableOriginalFilenames": ["Update.exe"],
+    "runningProcessNames": ["Discord.exe"]
   },
   "locations": [
-    { "scope": "roaming", "path": "discord", "ownership": "exclusive" },
-    { "scope": "local", "path": "Discord", "ownership": "exclusive" }
+    { "scope": "roaming", "path": "discord", "ownership": "exclusive" }
   ],
   "entries": [
     {
@@ -65,6 +65,38 @@
       "risk": "high",
       "rebuildable": false,
       "impact": "可能使账号退出登录，并丢失部分本地偏好。"
+    },
+    {
+      "id": "network-cookies",
+      "path": "Network/Cookies",
+      "category": "cookie",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含账号会话，移除后可能导致退出登录。"
+    },
+    {
+      "id": "local-storage",
+      "path": "Local Storage",
+      "category": "session",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含本地会话和应用状态，移除后可能丢失未同步信息。"
+    },
+    {
+      "id": "indexed-db",
+      "path": "IndexedDB",
+      "category": "database",
+      "risk": "high",
+      "rebuildable": false,
+      "impact": "包含应用数据库和离线状态，移除后可能造成不可恢复的数据丢失。"
+    },
+    {
+      "id": "local-state",
+      "path": "Local State",
+      "category": "config",
+      "risk": "protected",
+      "rebuildable": false,
+      "impact": "包含应用级配置和加密数据相关状态，默认禁止处理。"
     }
   ]
 }

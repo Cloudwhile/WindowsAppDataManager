@@ -42,6 +42,13 @@ struct RegistryInstallationRecord {
     QString displayName;
     QString publisher;
     QString installPath;
+    QString displayVersion;
+    QString displayIcon;
+    QString uninstallString;
+    QString quietUninstallString;
+    QString modifyPath;
+    bool windowsInstaller = false;
+    bool systemComponent = false;
 };
 
 struct AppxInstallationRecord {

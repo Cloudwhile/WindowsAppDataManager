@@ -1,0 +1,23 @@
+{
+  "$schema": "../schema.json",
+  "id": "windows-crash-dumps",
+  "version": "1",
+  "name": "Windows 崩溃转储",
+  "publisher": "Microsoft Corporation",
+  "applicationCategory": "系统",
+  "executablePath": "%SystemRoot%/System32/WerFault.exe",
+  "installPath": "%SystemRoot%/System32",
+  "locations": [
+    { "scope": "local", "path": "CrashDumps", "ownership": "shared" }
+  ],
+  "entries": [
+    {
+      "id": "crash-dumps",
+      "path": ".",
+      "category": "crash-dump",
+      "risk": "low",
+      "rebuildable": false,
+      "impact": "移除后无法继续分析这些旧崩溃，不影响 Windows 和相关应用正常运行。"
+    }
+  ]
+}

@@ -4,6 +4,8 @@
 #include <QRegularExpression>
 #include <QStringList>
 
+#include <algorithm>
+
 namespace wam::core::rules {
 namespace {
 
@@ -64,9 +66,10 @@ bool isReservedDosDeviceName(const QString &segment)
     return pattern.match(baseName).hasMatch();
 }
 
-bool hasInvalidWindowsCharacter(const QString &segment)
+bool hasInvalidWindowsCharacter(const QString &segment, bool allowGlob)
 {
-    static const QString invalidCharacters = QStringLiteral("<>\"|?*");
+    const QString invalidCharacters = allowGlob
+            ? QStringLiteral("<>\"|?") : QStringLiteral("<>\"|?*");
     for (const QChar character : segment) {
         if (character.unicode() < 32 || invalidCharacters.contains(character))
             return true;
@@ -74,7 +77,8 @@ bool hasInvalidWindowsCharacter(const QString &segment)
     return false;
 }
 
-bool validateSegments(const QString &path, QString *errorMessage)
+bool validateSegments(const QString &path, QString *errorMessage,
+                      bool allowGlob = false)
 {
     QString segmentPath = path;
     if (isDriveAbsolutePath(segmentPath))
@@ -117,7 +121,7 @@ bool validateSegments(const QString &path, QString *errorMessage)
                 *errorMessage = QStringLiteral("路径不能包含 DOS 保留设备名");
             return false;
         }
-        if (hasInvalidWindowsCharacter(segment)) {
+        if (hasInvalidWindowsCharacter(segment, allowGlob)) {
             if (errorMessage)
                 *errorMessage = QStringLiteral("路径包含 Windows 文件名不允许的字符");
             return false;
@@ -196,7 +200,44 @@ bool validateRulePath(const QString &value, QString *errorMessage)
         }
     }
 
-    return validateSegments(path, errorMessage);
+    return validateSegments(path, errorMessage, false);
+}
+
+bool validateRelativeRulePath(const QString &value,
+                              bool allowRoot,
+                              QString *errorMessage,
+                              bool allowGlob)
+{
+    if (value != value.trimmed()) {
+        if (errorMessage)
+            *errorMessage = QStringLiteral("路径首尾不能包含空白字符");
+        return false;
+    }
+
+    QString path = QDir::fromNativeSeparators(value);
+    if (allowRoot && path == QStringLiteral("."))
+        return true;
+    if (path.isEmpty()) {
+        if (errorMessage)
+            *errorMessage = QStringLiteral("路径不能为空");
+        return false;
+    }
+    if (hasUnsafePrefix(path) || path.startsWith(QLatin1Char('/'))
+            || isDriveAbsolutePath(path) || path.contains(QLatin1Char('%'))) {
+        if (errorMessage)
+            *errorMessage = QStringLiteral("路径必须是 AppData 范围内的相对路径");
+        return false;
+    }
+
+    const QStringList segments = path.split(QLatin1Char('/'), Qt::KeepEmptyParts);
+    if (std::any_of(segments.cbegin(), segments.cend(), [](const QString &segment) {
+            return segment.isEmpty();
+        })) {
+        if (errorMessage)
+            *errorMessage = QStringLiteral("路径不能包含空路径段");
+        return false;
+    }
+    return validateSegments(path, errorMessage, allowGlob);
 }
 
 RulePathResolution resolveRulePath(QString value)
