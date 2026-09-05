@@ -532,6 +532,10 @@ void BackendTest::globRulesMatchControlledPatterns()
     QVERIFY(wam::core::rules::GlobMatcher::matches(
             QStringLiteral("*/caches/**"),
             QStringLiteral("IntelliJIdea2026.1/caches/index/file")));
+    QVERIFY(wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("Cache/**"), QStringLiteral("Cache")));
+    QVERIFY(wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("Cache/**"), QStringLiteral("Cache/data.bin")));
     QVERIFY(!wam::core::rules::GlobMatcher::matches(
             QStringLiteral("Profile */Cache/**"),
             QStringLiteral("Profile 2/Config/data.bin")));
@@ -540,6 +544,11 @@ void BackendTest::globRulesMatchControlledPatterns()
             QStringLiteral("../Cache/**"), &error));
     QVERIFY(!wam::core::rules::GlobMatcher::validate(
             QStringLiteral("Cache/**/../Secrets"), &error));
+    QVERIFY(!wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("../Cache/**"), QStringLiteral("Cache/data.bin")));
+    QVERIFY(!wam::core::rules::GlobMatcher::matches(
+            QStringLiteral("Cache/**/../Secrets"),
+            QStringLiteral("Cache/Secrets/token")));
 }
 
 void BackendTest::applicationRiskPreservesSixLevels()

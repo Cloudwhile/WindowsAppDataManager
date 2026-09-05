@@ -101,6 +101,13 @@ bool GlobMatcher::validate(const QString &pattern, QString *errorMessage)
 
 bool GlobMatcher::matches(const QString &pattern, const QString &path)
 {
+    // Keep the public matcher safe even when callers bypass RuleLoader.  Glob
+    // patterns are a constrained rule-language, not a general path matcher;
+    // accepting an unsafe pattern here would make the safety guarantee depend
+    // on every caller remembering to validate it first.
+    if (!validate(pattern))
+        return false;
+
     const QStringList patternSegments = normalized(pattern).split(
             QLatin1Char('/'), Qt::SkipEmptyParts);
     const QStringList pathSegments = normalized(path).split(
